@@ -83,7 +83,8 @@ def opt_validate ( optparser ):
     elif options.format == "BOWTIE":
         options.parser = BowtieParser
     elif options.format == "AUTO":
-        options.parser = guess_parser
+        format, options.parser = guess_parser
+        options.format = format
     else:
         logging.error("Format \"%s\" cannot be recognized!" % (options.format))
         sys.exit(1)

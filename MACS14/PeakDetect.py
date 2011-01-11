@@ -71,8 +71,8 @@ class PeakDetect:
         self.zwig_tr = opt.zwig_tr
         self.zwig_ctl= opt.zwig_ctl
         
-        self.show_graphs = False
-        self.min_score = 1.
+        self.show_graphs = opt.show_graphs
+        self.min_score = None
         self.max_score = None
         self.min_change = opt.converge_diff
         self.choose_random = opt.random_select_one_multi
@@ -590,8 +590,8 @@ class PeakDetect:
                         result = self.__tags_call_peak (curtags)
                         (peak_start,peak_end,peak_length,peak_summit,peak_height) = result
                 
-                print 'counts:', cnum_peak, cnum_sregion, cnum_lregion
-                print 'lambdas:', clambda_peak, clambda_sregion, clambda_lregion, lambda_bg
+                #print 'counts:', cnum_peak, cnum_sregion, cnum_lregion
+                #print 'lambdas:', clambda_peak, clambda_sregion, clambda_lregion, lambda_bg
                 
                 if self.call_peak_extend_reads:
                     # call subpeaks from peak heights. Extend each read by scan_window 
@@ -1114,10 +1114,13 @@ class PeakDetect:
         all_peak_inds, all_peak_lambdas = self.__get_all_peak_lambdas(init_regions,
             treatment, control, treat2control_ratio, pass_sregion, fake_when_missing)
         # filter out non-multiread peaks and save only counts of unique reads + multi indices
-        min_score = self.min_score if self.min_score is not None else 1e-6
-        max_score = self.max_score if self.max_score is not None else 1e4
+        min_score = self.min_score if self.min_score is not None else 1e-3
+        max_score = self.max_score if self.max_score is not None else 2e3
         final_regions = {}
         peak_posns = {}
+        show_graphs = self.show_graphs
+        #if show_graphs:
+        in_candidate = [False] * len(treatment.prob_aligns)  # if peak is in cand region
         for chrom in all_peak_inds:
             try:
                 (ttags,tmp) = treatment.get_locations_by_chr(chrom)
@@ -1141,6 +1144,8 @@ class PeakDetect:
                 for ind in peak_inds:
                     if type(ttags[ind]) is tuple:
                         multi_inds.append(ttags[ind][1])  # get the index into the prob array
+                        #if show_graphs:
+                        in_candidate[ttags[ind][1]] = True
                     else:
                         unique_count += 1
                 if len(multi_inds) == 0:
@@ -1149,11 +1154,13 @@ class PeakDetect:
                     if chrom not in final_regions:
                         final_regions[chrom] = []
                     final_regions[chrom].append((local_lambda, unique_count, multi_inds))
-                
+        print 'total_multi: ', treatment.total_multi
+        print 'total number of peaks in candidate regions:', sum(1 for inc in in_candidate if inc)
+        
         # for each iteration
         #if False:
-        if self.show_graphs:
-            self.__plot_EM_state(0, final_regions, peak_posns)
+        if show_graphs:
+            self.__plot_EM_state(0, final_regions, peak_posns, in_candidate)
         prev_entropy = None
         for iteration in itertools_count(1):  # until convergence
             cur_entropy = list(self.__get_read_entropy(self.treat))
@@ -1197,12 +1204,12 @@ class PeakDetect:
                 enrich_total = sum(treatment.enrich_scores[j] for j in group_range)
                 for j in group_range:
                     treatment.prob_aligns[j] = treatment.enrich_scores[j] / enrich_total
-            if self.show_graphs:
-                self.__plot_EM_state(iteration, final_regions, peak_posns)
+            if show_graphs:
+                self.__plot_EM_state(iteration, final_regions, peak_posns, in_candidate)
             prev_entropy = cur_entropy
             # rinse and repeat (until convergence)
     
-    def __plot_EM_state(self, iteration, final_regions, peak_posns, output_summary=True):
+    def __plot_EM_state(self, iteration, final_regions, peak_posns, in_candidate, output_summary=True):
         '''Plot the current data state. These may include:
            Entropy Histogram, CDF of enrichment scores and alignment probabilities,
            ratio of FG to BG scores or probabilities
@@ -1255,10 +1262,10 @@ class PeakDetect:
     def __plot_entropy_hist(self, iteration, treatment):
         from matplotlib import pyplot
         entropy = list(self.__get_read_entropy(treatment))
-        outfile = open('entropy.%s.txt' % iteration, 'wb')
-        for value in entropy:
-            outfile.write(str(value)+'\n')
-        outfile.close()
+        #outfile = open('entropy.%s.txt' % iteration, 'wb')
+        #for value in entropy:
+            #outfile.write(str(value)+'\n')
+        #outfile.close()
         n, bins, patches = pyplot.hist(entropy, 50, facecolor='black', alpha=1)
         #pyplot.xticks( scipy.arange(0,1.1,0.1) )
         pyplot.xlim([0,1] if iteration != 0 else [0,1.2])
@@ -1271,10 +1278,10 @@ class PeakDetect:
     def __plot_enrichment_CDF(self, iteration, treatment):
         from matplotlib import pyplot
         pyplot.hist(treatment.enrich_scores, bins=100, normed=True, cumulative=True, histtype='step') 
-        outfile = open('enrichScore.%s.txt' % iteration, 'wb')
-        for value in treatment.enrich_scores:
-            outfile.write(str(value)+'\n')
-        outfile.close()
+        #outfile = open('enrichScore.%s.txt' % iteration, 'wb')
+        #for value in treatment.enrich_scores:
+            #outfile.write(str(value)+'\n')
+        #outfile.close()
         pyplot.ylim([0,1])
         pyplot.xlabel('Enrichment Score' if iteration != 0 else 'Quality Scores')
         pyplot.ylabel('fraction of data')
@@ -1284,10 +1291,10 @@ class PeakDetect:
     
     def __plot_probability_CDF(self, iteration, treatment):
         from matplotlib import pyplot
-        outfile = open('alignProbs.%s.txt' % iteration, 'wb')
-        for value in treatment.prob_aligns:
-            outfile.write(str(value)+'\n')
-        outfile.close()
+        #outfile = open('alignProbs.%s.txt' % iteration, 'wb')
+        #for value in treatment.prob_aligns:
+            #outfile.write(str(value)+'\n')
+        #outfile.close()
         pyplot.hist( treatment.prob_aligns, bins=100, normed=True, cumulative=True, histtype='step') 
         #pyplot.xticks( scipy.arange(0,1.1,0.1) )
         pyplot.xlim([0,1])
@@ -1420,8 +1427,8 @@ class PeakDetect:
                 peak_start,peak_end,peak_length,peak_summit,peak_height, peak_num_tags = peak_list[i]
         
                 #window_size_4_lambda = min(self.first_lambda_region,max(peak_length,self.scan_window))
-                #window_size_4_lambda = max(peak_length,self.scan_window)
-                window_size_4_lambda = peak_length
+                window_size_4_lambda = max(peak_length,self.scan_window)
+                #window_size_4_lambda = peak_length
                 lambda_bg = self.lambda_bg/self.scan_window*window_size_4_lambda                
                 if self.nolambda:
                     # skip local lambda
@@ -1456,8 +1463,8 @@ class PeakDetect:
                                 prev_index_ctag = index_ctag
                             p = get_read_start(ctags[index_ctag])
                             prob = get_c_read_prob(ctags[index_ctag])
-                            #if left_peak <= p <= right_peak:
-                            if peak_start <= p <= peak_end:
+                            if left_peak <= p <= right_peak:
+                            #if peak_start <= p <= peak_end:
                                 cnum_peak += prob
                             if left_sregion <= p <= right_sregion:
                                 cnum_sregion += prob
@@ -1483,8 +1490,8 @@ class PeakDetect:
                                 prev_index_ttag = index_ttag
                             p = get_read_start(ttags[index_ttag])
                             prob = get_t_read_prob(ttags[index_ctag])
-                            #if left_peak <= p <= right_peak:
-                            if peak_start <= p <= peak_end:
+                            if left_peak <= p <= right_peak:
+                            #if peak_start <= p <= peak_end:
                                 inds_in_peak.append(index_ttag)
                                 tnum_peak += prob
                             if left_sregion <= p <= right_sregion:

@@ -57,7 +57,7 @@ def guess_parser ( fhd ):
         s = p.sniff()
         if s:
             logging.info("Detected format is: %s" % (f) )
-            return p
+            return f, p
     raise Exception("Can't detect format!")
 
 # ------------------------------------
