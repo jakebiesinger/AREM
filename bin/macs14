@@ -270,7 +270,13 @@ Example: %prog -t ChIP.bam -c Control.bam -f BAM -g h -n test -w --call-subpeaks
     optparser.add_option("--fe-step",dest="festep",type="int",default=FESTEP,
                          help="For diagnostics, fold enrichment step.  DEFAULT: 20")
     optparser.add_option("--random_multi",dest="random_select_one_multi",action='store_true',
-                         help="Rather than performing EM, choose one of the multi-reads at random. DEFAULT : False")
+                         help="At random, choose only one of the multiple alignments to include from each read. DEFAULT : False")
+    optparser.add_option("--no_greedy_caller",dest="no_greedy_caller",action='store_true',
+                         help="Use MACS default peak caller instead of the greedy caller. This normally results in wider, more diffuse peaks. DEFAULT : False")
+    optparser.add_option("--converge_diff",dest="converge_diff",type="float",default=1e-10,
+                         help="The minimum entropy change between iterations before halting E-M steps. DEFAULT : %default")
+    optparser.add_option("--no_EM",dest="no_EM",action='store_true',
+                         help="Do not iteratively align multiply aligning reads by E-M. DEFAULT : FALSE")
     return optparser
    
 def cal_max_dup_tags ( genome_size, tags_number, p=1e-5 ):

@@ -16,6 +16,7 @@ with the distribution).
 import os
 from math import log as mathlog
 from array import array
+from itertools import count as itertools_count
 
 from MACS14.OutputWriter import zwig_write
 from MACS14.IO.FeatIO import PeakIO,WigTrackI,BinKeeperI
@@ -71,13 +72,13 @@ class PeakDetect:
         self.zwig_ctl= opt.zwig_ctl
         
         self.show_graphs = False
-        self.min_change = 1e-10
         self.min_score = 1.
         self.max_score = None
-        self.choose_random = False
-        self.run_arem = True
+        self.min_change = opt.converge_diff
+        self.choose_random = opt.random_select_one_multi
+        self.no_EM = opt.no_EM
         self.call_peak_extend_reads = False
-        self.call_peak_greedy_window = True
+        self.no_greedy_caller = opt.no_greedy_caller
 
     def call_peaks (self):
         """Call peaks function.
@@ -256,7 +257,9 @@ class PeakDetect:
                 zwig_write(self.treat,self.opt.wig_dir_tr,self.zwig_tr,self.opt.wigextend,log=self.info,space=self.opt.space,single=self.opt.singlewig)
             else:
                 zwig_write(self.treat,self.opt.wig_dir_tr,self.zwig_tr,self.d,log=self.info,space=self.opt.space,single=self.opt.singlewig)
-
+        self.info("#3 call peak candidates")
+        peak_candidates = self.__call_peaks_from_trackI (self.treat, self.treat.prob_aligns)
+        
         self.info("#3 shift control data")
         self.info("#3 merge +/- strand of control data")
         self.__shift_trackI(self.control)
@@ -272,14 +275,10 @@ class PeakDetect:
                 zwig_write(self.control,self.opt.wig_dir_ctl,self.zwig_ctl,self.opt.wigextend,log=self.info,space=self.opt.space,single=self.opt.singlewig)
             else:
                 zwig_write(self.control,self.opt.wig_dir_ctl,self.zwig_ctl,self.d,log=self.info,space=self.opt.space,single=self.opt.singlewig)
-        
-        self.info("#3 call peak candidates")
-        peak_candidates = self.__call_peaks_from_trackI (self.treat, self.treat.prob_aligns)
-        
         self.info("#3 call negative peak candidates")
         negative_peak_candidates = self.__call_peaks_from_trackI (self.control, self.control.prob_aligns)
         
-        if self.treat.total_multi > 0 and self.run_arem:
+        if self.treat.total_multi > 0 and not self.no_EM:
             self.info("#3.5 Perform EM on treatment multi reads")
             self.__align_by_EM(self.treat, self.control, peak_candidates, self.ratio_treat2control, fake_when_missing=True)
 
@@ -294,7 +293,7 @@ class PeakDetect:
         #    os.system("gzip "+self.opt.name+".score.wig")
         
         self.info("#3 use control data to filter peak candidates...")
-        self.final_peaks = self.__filter_w_control(peak_candidates,self.treat,self.control, self.ratio_treat2control, fake_when_missing=True)
+        self.final_peaks = self.__filter_w_control(peak_candidates,self.treat,self.control, self.ratio_treat2control,fake_when_missing=True)
         self.info("#3 find negative peaks by swapping treat and control")
 
         self.final_negative_peaks = self.__filter_w_control(negative_peak_candidates,self.control,self.treat, 1.0/self.ratio_treat2control,fake_when_missing=True)
@@ -345,7 +344,7 @@ class PeakDetect:
             for peak in peak_list:
                 print ( chrom+"\t"+"\t".join(map(str,peak)) )
 
-    def __filter_w_control (self, peak_info, treatment, control, treat2control_ratio, pass_sregion=False, write2wig= False, fake_when_missing=False):
+    def __filter_w_control (self, peak_info, treatment, control, treat2control_ratio, pass_sregion=False, write2wig= False, fake_when_missing=False ):
         """Use control data to calculate several lambda values around
         1k, 5k and 10k region around peak summit. Choose the highest
         one as local lambda, then calculate p-value in poisson
@@ -415,7 +414,7 @@ class PeakDetect:
                     # skip local lambda
                     print 'skipping local lambda'
                     local_lambda = lambda_bg
-                    tlambda_peak = float(peak_num_tags)/peak_length*window_size_4_lambda  # TODO BUG: peak_num_tags doesn't reflect probabilities! same in new lambdas function
+                    tlambda_peak = float(peak_num_tags)/peak_length*window_size_4_lambda
                 else:
                     left_peak = peak_start+self.shift_size # go to middle point of the first fragment
                     right_peak = peak_end-self.shift_size  # go to middle point of the last fragment
@@ -429,7 +428,7 @@ class PeakDetect:
                     cnum_peak_total, tnum_peak_total = 0,0
                     #smallest = min(left_peak,left_10k,left_5k,left_1k)
                     #largest = max(right_peak,right_10k,right_5k,right_1k)
-                    
+
                     #print 'index_ctag: %s, ctags[j] %s' % (index_ctag, ctags[index_ctag])
                     while index_ctag < len_ctags:
                         if get_read_start(ctags[index_ctag]) < left_lregion:
@@ -447,8 +446,8 @@ class PeakDetect:
                                 prev_index_ctag = index_ctag
                             p = get_read_start(ctags[index_ctag])
                             prob = get_c_read_prob(ctags[index_ctag])
-                            #if left_peak <= p <= right_peak:
-                            if peak_start <= p <= peak_end:
+                            if left_peak <= p <= right_peak:
+                            #if peak_start <= p <= peak_end:  # Jake-- wouldn't this make more sense?
                                 cnum_peak += prob
                                 cnum_peak_total += 1
                             if left_sregion <= p <= right_sregion:
@@ -475,8 +474,8 @@ class PeakDetect:
                                 prev_index_ttag = index_ttag
                             p = get_read_start(ttags[index_ttag])
                             prob = get_t_read_prob(ttags[index_ttag])
-                            #if left_peak <= p <= right_peak:
-                            if peak_start <= p <= peak_end:
+                            if left_peak <= p <= right_peak:
+                            #if peak_start <= p <= peak_end:  # Jake-- again, seems to be more accurate...
                                 tnum_peak += prob
                                 tnum_peak_total += 1
                                 inds_in_peak.append(index_ttag)
@@ -607,12 +606,12 @@ class PeakDetect:
                     pval_high = poisson_cdf(thresh_upper - 1, local_lambda, lower=False)
                     pval_mid = pow(10, self.pvalue/-10)
                     thresh_subpeak = thresh_upper + -1./(pval_high - pval_low) * (pval_mid - pval_high)  # rise of -1, run of diff(pvals)
-                    print self.min_tags, self.scan_window
-                    print peak_tags
-                    print 'min threshold for local_lambda %s, peak_length %s is %s' % (local_lambda, peak_length, thresh_subpeak)
+                    #print self.min_tags, self.scan_window
+                    #print peak_tags
+                    #print 'min threshold for local_lambda %s, peak_length %s is %s' % (local_lambda, peak_length, thresh_subpeak)
                     subpeaks = self.__tags_call_peak_w_subpeaks(peak_tags,
                                         treatment.prob_aligns, thresh_subpeak)
-                    print subpeaks
+                    #print subpeaks
                     for sub_p in subpeaks:
                         n_chrom += 1
                         total += 1
@@ -628,7 +627,7 @@ class PeakDetect:
                         peak_fold_enrichment = float(peak_height)/local_lambda*window_size_4_lambda/self.d
                         final_peak_info[chrom].append((peak_start,peak_end,peak_length,peak_summit,peak_height,peak_mass,peak_pvalue,peak_fold_enrichment))
 
-                elif self.call_peak_greedy_window:
+                elif not self.no_greedy_caller:
                     # build up sub peaks from the candidate we are iterating over
                     # by greedily adding tags to the current subpeak.  To avoid
                     # local minima, we always look at least scanwindow bases away
@@ -649,10 +648,10 @@ class PeakDetect:
                     lambda_width = max(cpr_width, self.scan_window)
                     cpr_pval = poisson_cdf(cpr_mass,local_lambda * lambda_width / window_size_4_lambda,lower=False)
                     middle_mass = 0
-                    print 'on first', cpr_width, cpr_mass, cpr_pval, cpr_tags
-                    print j, len(inds_in_peak)
+                    #print 'on first', cpr_width, cpr_mass, cpr_pval, cpr_tags
+                    #print j, len(inds_in_peak)
                     while j < len(inds_in_peak):
-                        print cpr_width, cpr_mass, cpr_pval, cpr_tags
+                        #print cpr_width, cpr_mass, cpr_pval, cpr_tags
                         test_posn = get_read_start(ttags[inds_in_peak[j]])
                         cur_dist = test_posn - get_read_start(cpr_tags[-1])
                         if cur_dist <= self.scan_window:
@@ -660,7 +659,7 @@ class PeakDetect:
                             lambda_width = max(test_width, self.scan_window)
                             test_mass = cpr_mass + middle_mass + get_t_read_prob(ttags[inds_in_peak[j]])
                             test_pval = poisson_cdf(test_mass,local_lambda * lambda_width / window_size_4_lambda,lower=False)
-                            print 'vs.', test_width, test_mass, test_pval
+                            #print 'vs.', test_width, test_mass, test_pval
                             if test_pval < cpr_pval:
                                 # enrichment improved-- add the tag
                                 cpr_tags.append(ttags[inds_in_peak[j]])
@@ -668,10 +667,10 @@ class PeakDetect:
                                 cpr_width = test_width
                                 cpr_pval = test_pval
                                 middle_mass = 0
-                                print 'accepted'
+                                #print 'accepted'
                             else:
                                 middle_mass += get_t_read_prob(ttags[inds_in_peak[j]])
-                                print 'denied'
+                                #print 'denied'
                             j += 1
                         else:
                             # call previous region as a peak
@@ -679,7 +678,7 @@ class PeakDetect:
                                 cpr_pval = 3100
                             else:
                                 cpr_pval = mathlog(cpr_pval,10) * -10
-                            print 'calling peak!', cpr_pval, '>', self.pvalue, ' ?'
+                            #print 'calling peak!', cpr_pval, '>', self.pvalue, ' ?'
                             if cpr_pval > self.pvalue:
                                 p_start, p_end, p_length, p_summit, p_height = self.__tags_call_peak(cpr_tags, treatment.prob_aligns)
                                 cpr_enrich = p_height / local_lambda * window_size_4_lambda / self.d
@@ -1156,7 +1155,7 @@ class PeakDetect:
         if self.show_graphs:
             self.__plot_EM_state(0, final_regions, peak_posns)
         prev_entropy = None
-        for iteration in range(1,20+1):
+        for iteration in itertools_count(1):  # until convergence
             cur_entropy = list(self.__get_read_entropy(self.treat))
             if prev_entropy is not None:  # check for convergence
                 denom = sum(ent ** 2 for ent in cur_entropy)
