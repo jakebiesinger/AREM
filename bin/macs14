@@ -269,6 +269,8 @@ Example: %prog -t ChIP.bam -c Control.bam -f BAM -g h -n test -w --call-subpeaks
                          help="For diagnostics, max fold enrichment to consider. DEFAULT: maximum fold enrichment")
     optparser.add_option("--fe-step",dest="festep",type="int",default=FESTEP,
                          help="For diagnostics, fold enrichment step.  DEFAULT: 20")
+    optparser.add_option("--random_multi",dest="random_select_one_multi",action='store_true',
+                         help="Rather than performing EM, choose one of the multi-reads at random. DEFAULT : False")
     return optparser
    
 def cal_max_dup_tags ( genome_size, tags_number, p=1e-5 ):
@@ -305,11 +307,18 @@ def load_tag_files_options ( options ):
         ttsize = tp.tsize()
         if not options.tsize:           # override tsize if user specified --tsize
             options.tsize = ttsize
-        treat = tp.build_fwtrack()
+        if options.format == "BOWTIE":
+            treat = tp.build_fwtrack(random_select_one_multi=options.random_select_one_multi)
+        else:
+            treat = tp.build_fwtrack()
         treat.sort()
         if options.cfile:
             options.info("#1.2 read input tags...")
-            control = options.parser(open2(options.cfile)).build_fwtrack()
+            cp = options.parser(open2(options.cfile))
+            if options.format == "BOWTIE":
+                control = cp.build_fwtrack(random_select_one_multi=options.random_select_one_multi)
+            else:
+                control = cp.build_fwtrack()
             control.sort()
         else:
             control = None
