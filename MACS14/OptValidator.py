@@ -33,6 +33,7 @@ efgsize = {"hs":2.7e9,
            "ce":9e7,
            "dm":1.2e8}
 
+allowed_qual_scales = ['auto', 'sanger+33', 'illumina+64', 'uniform']
 # ------------------------------------
 # Misc functions
 # ------------------------------------
@@ -83,12 +84,11 @@ def opt_validate ( optparser ):
     elif options.format == "BOWTIE":
         options.parser = BowtieParser
     elif options.format == "AUTO":
-        format, options.parser = guess_parser
-        options.format = format
+        options.parser = guess_parser
     else:
         logging.error("Format \"%s\" cannot be recognized!" % (options.format))
         sys.exit(1)
-    
+
     # for ELANDMULTIPET format
     if options.format == "ELANDMULTIPET":
         # treatment files

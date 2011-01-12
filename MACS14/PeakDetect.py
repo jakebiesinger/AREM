@@ -71,14 +71,8 @@ class PeakDetect:
         self.zwig_tr = opt.zwig_tr
         self.zwig_ctl= opt.zwig_ctl
         
-        self.show_graphs = opt.show_graphs
-        self.min_score = None
-        self.max_score = None
-        self.min_change = opt.converge_diff
-        self.choose_random = opt.random_select_one_multi
-        self.no_EM = opt.no_EM
+        # params for AREM
         self.call_peak_extend_reads = False
-        self.no_greedy_caller = opt.no_greedy_caller
 
     def call_peaks (self):
         """Call peaks function.
@@ -278,7 +272,7 @@ class PeakDetect:
         self.info("#3 call negative peak candidates")
         negative_peak_candidates = self.__call_peaks_from_trackI (self.control, self.control.prob_aligns)
         
-        if self.treat.total_multi > 0 and not self.no_EM:
+        if self.treat.total_multi > 0 and not self.opt.no_EM:
             self.info("#3.5 Perform EM on treatment multi reads")
             self.__align_by_EM(self.treat, self.control, peak_candidates, self.ratio_treat2control, fake_when_missing=True)
 
@@ -508,88 +502,6 @@ class PeakDetect:
                 else:
                     peak_pvalue = mathlog(p_tmp,10) * -10
                 
-                if False:
-                #if self.clip_extra_reads:
-                    # try to improve p-value by clipping reads from edges
-                    any_clipped = False
-                    #print 'new one', (peak_start,peak_end,peak_length,peak_summit,peak_height,peak_num_tags)
-                    #print 'compare mycount:', tnum_peak, 'MACS count:', peak_num_tags, tnum_peak_total, cnum_peak_total
-                    #print 'indices:', cpr_indices
-                    while True:
-                        flag_clipped = False
-                        # clip from the left
-                        clip_ind = 0
-                        #print clip_ind, inds_in_peak, [ttags[j] for j in inds_in_peak]
-                        left_start = get_read_start(ttags[inds_in_peak[0]])
-                        # consider removing all reads up to scan_window into the peak
-                        while get_read_start(ttags[inds_in_peak[clip_ind]]) - left_start <= self.scan_window:
-                            if clip_ind >= len(inds_in_peak) - 1:
-                                # reached the end of the peak
-                                break
-                            tmp_peak_start = get_read_start(ttags[inds_in_peak[clip_ind+1]])
-                            tmp_peak_length = peak_length
-                            tmp_peak_length -= tmp_peak_start - left_start
-                            tmp_tnum_peak = tnum_peak
-                            for j in range(clip_ind + 1):
-                                tmp_tnum_peak -= get_t_read_prob(ttags[inds_in_peak[j]])
-                            tmp_tlambda_peak = float(tmp_tnum_peak)/tmp_peak_length*window_size_4_lambda
-                            tmp_peak_pvalue = poisson_cdf(tmp_tlambda_peak, local_lambda, lower=False)
-                            tmp_peak_pvalue = mathlog(p_tmp,10) * -10 if tmp_peak_pvalue > 0 else 3100
-                            if tmp_peak_pvalue > peak_pvalue:
-                                flag_clipped = True
-                                any_clipped = True
-                                tlambda_peak = tmp_tlambda_peak
-                                peak_pvalue = tmp_peak_pvalue
-                                peak_start = tmp_peak_start
-                                inds_in_peak = inds_in_peak[clip_ind + 1:]
-                                peak_end = tmp_peak_end
-                                peak_length = tmp_peak_length
-                                peak_num_tags = tmp_tnum_peak
-                                break
-                            clip_ind += 1
-
-                        #if flag_clipped:
-                        #    continue
-                        
-                        # clip from the right
-                        clip_ind = -1
-                        right_start = get_read_start(ttags[inds_in_peak[-1]])
-                        # consider removing all reads up to scan_window into the peak
-                        while right_start - get_read_start(ttags[inds_in_peak[clip_ind]]) <= self.scan_window:
-                            if -clip_ind > len(inds_in_peak) - 1:
-                                # reached the end of the peak
-                                break
-                            tmp_peak_end = get_read_start(ttags[inds_in_peak[clip_ind - 1]])
-                            tmp_peak_length = peak_length
-                            tmp_peak_length -= right_start - tmp_peak_end
-                            tmp_tlambda_peak = tlambda_peak
-                            tmp_tnum_peak = tnum_peak
-                            for j in range(-1, clip_ind - 1, -1):
-                                tmp_tnum_peak -= get_t_read_prob(ttags[inds_in_peak[j]])
-                            tmp_tlambda_peak = float(tmp_tnum_peak)/tmp_peak_length*window_size_4_lambda
-                            tmp_peak_pvalue = poisson_cdf(tmp_tlambda_peak, local_lambda, lower=False)
-                            tmp_peak_pvalue = mathlog(p_tmp,10) * -10 if tmp_peak_pvalue > 0 else 3100
-                            if tmp_peak_pvalue > peak_pvalue:
-                                flag_clipped = True
-                                any_clipped = True
-                                tlambda_peak = tmp_tlambda_peak
-                                peak_pvalue = tmp_peak_pvalue
-                                inds_in_peak = inds_in_peak[:clip_ind]
-                                peak_end = tmp_peak_end
-                                peak_length = tmp_peak_length
-                                peak_num_tags = tmp_tnum_peak
-                                break
-                            clip_ind -= 1
-                            
-                        if not flag_clipped:
-                            # no reads clipped from left or right
-                            break
-                    # update height and summit after clipping
-                    if any_clipped:
-                        curtags = [ttags[j] for j in inds_in_peak]
-                        result = self.__tags_call_peak (curtags)
-                        (peak_start,peak_end,peak_length,peak_summit,peak_height) = result
-                
                 #print 'counts:', cnum_peak, cnum_sregion, cnum_lregion
                 #print 'lambdas:', clambda_peak, clambda_sregion, clambda_lregion, lambda_bg
                 
@@ -627,7 +539,7 @@ class PeakDetect:
                         peak_fold_enrichment = float(peak_height)/local_lambda*window_size_4_lambda/self.d
                         final_peak_info[chrom].append((peak_start,peak_end,peak_length,peak_summit,peak_height,peak_mass,peak_pvalue,peak_fold_enrichment))
 
-                elif not self.no_greedy_caller:
+                elif not self.opt.no_greedy_caller:
                     # build up sub peaks from the candidate we are iterating over
                     # by greedily adding tags to the current subpeak.  To avoid
                     # local minima, we always look at least scanwindow bases away
@@ -683,6 +595,8 @@ class PeakDetect:
                                 p_start, p_end, p_length, p_summit, p_height = self.__tags_call_peak(cpr_tags, treatment.prob_aligns)
                                 cpr_enrich = p_height / local_lambda * window_size_4_lambda / self.d
                                 final_peak_info[chrom].append((p_start, p_end, p_length, p_summit, p_height, cpr_mass, cpr_pval, cpr_enrich))
+                                n_chrom += 1
+                                total += 1
 
                             # reset cpr
                             cpr_tags = [ttags[inds_in_peak[j]]]
@@ -720,11 +634,13 @@ class PeakDetect:
                             cpr_pval = 3100
                         else:
                             cpr_pval = mathlog(cpr_pval,10) * -10
-                        print 'calling peak!', cpr_pval, '>', self.pvalue, ' ?'
+                        #print 'calling peak!', cpr_pval, '>', self.pvalue, ' ?'
                         if cpr_pval > self.pvalue:
                             p_start, p_end, p_length, p_summit, p_height = self.__tags_call_peak(cpr_tags, treatment.prob_aligns)
                             cpr_enrich = p_height / local_lambda * window_size_4_lambda / self.d
                             final_peak_info[chrom].append((p_start, p_end, p_length, p_summit, p_height, cpr_mass, cpr_pval, cpr_enrich))
+                            n_chrom += 1
+                            total += 1
 
                 elif peak_pvalue > self.pvalue:
                     n_chrom += 1
@@ -1114,11 +1030,11 @@ class PeakDetect:
         all_peak_inds, all_peak_lambdas = self.__get_all_peak_lambdas(init_regions,
             treatment, control, treat2control_ratio, pass_sregion, fake_when_missing)
         # filter out non-multiread peaks and save only counts of unique reads + multi indices
-        min_score = self.min_score if self.min_score is not None else 1e-3
-        max_score = self.max_score if self.max_score is not None else 2e3
+        min_score = self.opt.min_score if self.opt.min_score is not None else 1e-3
+        max_score = self.opt.max_score if self.opt.max_score is not None else 2e3
         final_regions = {}
         peak_posns = {}
-        show_graphs = self.show_graphs
+        show_graphs = self.opt.show_graphs
         #if show_graphs:
         in_candidate = [False] * len(treatment.prob_aligns)  # if peak is in cand region
         for chrom in all_peak_inds:
@@ -1162,6 +1078,7 @@ class PeakDetect:
         if show_graphs:
             self.__plot_EM_state(0, final_regions, peak_posns, in_candidate)
         prev_entropy = None
+        log_base = self.opt.enrich_log_base
         for iteration in itertools_count(1):  # until convergence
             cur_entropy = list(self.__get_read_entropy(self.treat))
             if prev_entropy is not None:  # check for convergence
@@ -1173,7 +1090,7 @@ class PeakDetect:
                         for i in xrange(len(cur_entropy))])
                     difference = difference / denom
                 self.info("Entropy difference is %s" % difference)
-                if difference < self.min_change:
+                if difference < self.opt.min_change:
                     self.info("Convergence criteria reached after %s iterations!" % iteration)
                     break
             self.info("#3.%s iterate AREM" % iteration)
@@ -1186,8 +1103,7 @@ class PeakDetect:
                     if pvalue <= 0:
                         score = max_score
                     else:
-                        #score = max(-mathlog(pvalue, 10), min_score)
-                        score = max(-mathlog(pvalue, 2), min_score)
+                        score = max(-mathlog(pvalue, log_base), min_score)
                         score = min(score, max_score)
                     for i in multi_inds:
                         treatment.enrich_scores[i] = score
@@ -1209,13 +1125,13 @@ class PeakDetect:
             prev_entropy = cur_entropy
             # rinse and repeat (until convergence)
     
-    def __plot_EM_state(self, iteration, final_regions, peak_posns, in_candidate, output_summary=True):
+    def __plot_EM_state(self, iteration, final_regions, peak_posns, in_candidate, output_summary=False):
         '''Plot the current data state. These may include:
            Entropy Histogram, CDF of enrichment scores and alignment probabilities,
            ratio of FG to BG scores or probabilities
         '''
         if output_summary:
-            with open('EM_peaks_%s.txt' % iteration, 'w') as outfile:
+            with open(self.opt.name + '_EMpeaks_%s.txt' % iteration, 'w') as outfile:
                 # final_regions[chrom].append((local_lambda, unique_count, multi_inds))
                 outfile.write('\t'.join(['chrom', 'start', 'stop', 'length', 'local_lamba',
                                          'unique_count', 'total_mass']) + '\n')
@@ -1268,25 +1184,28 @@ class PeakDetect:
         #outfile.close()
         n, bins, patches = pyplot.hist(entropy, 50, facecolor='black', alpha=1)
         #pyplot.xticks( scipy.arange(0,1.1,0.1) )
-        pyplot.xlim([0,1] if iteration != 0 else [0,1.2])
-        pyplot.xlabel('Entropy')
+        pyplot.xlim([0,1])
+        pyplot.xlabel('Relative Entropy')
         pyplot.ylabel('Number of reads')
-        pyplot.title('Multihit entropy distribution for i=%s' % iteration)
-        pyplot.savefig('Entropy_%s.png' % iteration)
+        pyplot.title('Multihit entropy distribution for %s at i=%s' % (
+                        self.opt.name,iteration))
+        pyplot.savefig(self.opt.name + '_entropy_%s.png' % iteration)
         pyplot.close()
 
     def __plot_enrichment_CDF(self, iteration, treatment):
         from matplotlib import pyplot
-        pyplot.hist(treatment.enrich_scores, bins=100, normed=True, cumulative=True, histtype='step') 
+        pyplot.hist(treatment.enrich_scores, bins=100, normed=True, 
+                    cumulative=True, histtype='step') 
         #outfile = open('enrichScore.%s.txt' % iteration, 'wb')
         #for value in treatment.enrich_scores:
             #outfile.write(str(value)+'\n')
         #outfile.close()
         pyplot.ylim([0,1])
-        pyplot.xlabel('Enrichment Score' if iteration != 0 else 'Quality Scores')
+        pyplot.xlabel('Enrichment Score')
         pyplot.ylabel('fraction of data')
-        pyplot.title('CDF of %s Scores at i=%s' % ('Enrichment' if iteration != 0 else 'Quality', iteration))
-        pyplot.savefig('CDF_Enrichment_%s.png' % iteration)
+        pyplot.title('CDF of Enrichment Scores for %s at i=%s' % (self.opt.name,
+                                                                  iteration))
+        pyplot.savefig(self.opt.name + '_CDF_enrichment_%s.png' % iteration)
         pyplot.close()
     
     def __plot_probability_CDF(self, iteration, treatment):
@@ -1295,68 +1214,16 @@ class PeakDetect:
         #for value in treatment.prob_aligns:
             #outfile.write(str(value)+'\n')
         #outfile.close()
-        pyplot.hist( treatment.prob_aligns, bins=100, normed=True, cumulative=True, histtype='step') 
+        pyplot.hist(treatment.prob_aligns, bins=100, normed=True, 
+                     cumulative=True, histtype='step') 
         #pyplot.xticks( scipy.arange(0,1.1,0.1) )
         pyplot.xlim([0,1])
         pyplot.ylim([0,1])
         pyplot.xlabel('Alignment Probability')
-        pyplot.ylabel('fraction of data')
-        pyplot.title('CDF of alignment probabilities at i=%s' % iteration)
-        pyplot.savefig('CDF_Prob_%s.png' % iteration)
-        pyplot.close()
-    
-    def __plot_probability_mass_ratio(self, iteration, treatment, control):
-        from matplotlib import pyplot
-        if iteration == 0:
-            return
-        global allFgMasses, allBgMasses
-        allFgMasses = scipy.array(allFgMasses, dtype=float)
-        allBgMasses = scipy.array(allBgMasses, dtype=float)
-        # TODO Add a line indicating a particular significance cutoff, other plot goodness
-        pyplot.hist(allFgMasses, 50, facecolor='black', alpha=1)
-        pyplot.xlabel('Probability Mass per window')
-        pyplot.ylabel('Count')
-        pyplot.yscale('log')
-        pyplot.title('Total Probability mass per window, for %s at i=%s' % (fgReadSet.expName, iteration))
-        pyplot.savefig('ProbMass_Foreground_%s_%s.png' % (fgReadSet.expName, iteration))
-        pyplot.close()
-        
-        pyplot.hist(scipy.log10(allFgMasses), 50, facecolor='black', alpha=1)
-        pyplot.xlabel('Probability Mass per window')
-        pyplot.ylabel('Count')
-        pyplot.title('Total Probability mass per window, for %s at i=%s' % (fgReadSet.expName, iteration))
-        pyplot.savefig('ProbMass_Foreground_log_%s_%s.png' % (fgReadSet.expName, iteration))
-        pyplot.close()
-        
-        if iteration == 1:
-            pyplot.hist(allBgMasses, 50, facecolor='black', alpha=1)
-            pyplot.xlabel('Probability Mass per window')
-            pyplot.ylabel('Count')
-            pyplot.yscale('log')
-            pyplot.title('Total Probability mass per window, for %s at i=%s' % (bgReadSet.expName, iteration))
-            pyplot.savefig('ProbMass_Background_%s_%s.png' % (bgReadSet.expName, iteration))
-            pyplot.close()
-        
-            pyplot.hist(scipy.log10(allBgMasses), 50, facecolor='black', alpha=1)
-            pyplot.xlabel('Probability Mass per window (log10 scale)')
-            pyplot.ylabel('Count')
-            pyplot.title('Total Probability mass per window, for %s at i=%s' % (bgReadSet.expName, iteration))
-            pyplot.savefig('ProbMass_Background_log_%s_%s.png' % (bgReadSet.expName, iteration))
-            pyplot.close()
-        
-        pyplot.hist(allFgMasses / allBgMasses, 50, facecolor='black', alpha=1)
-        pyplot.xlabel('Probability Mass FG / BG')
-        pyplot.ylabel('Count')
-        pyplot.yscale('log')
-        pyplot.title('Prob Mass ratio for each window, for %s at i=%s' % (fgReadSet.expName, iteration))
-        pyplot.savefig('ProbRatio_Ratio_%s_%s.png' % (fgReadSet.expName, iteration))
-        pyplot.close()
-        
-        pyplot.hist(scipy.log10(allFgMasses / allBgMasses), 50, facecolor='black', alpha=1)
-        pyplot.xlabel('Probability Mass FG / BG (log10 scale)')
-        pyplot.ylabel('Count')
-        pyplot.title('Prob Mass ratio for each window, for %s at i=%s' % (fgReadSet.expName, iteration))
-        pyplot.savefig('ProbRatio_Ratio_log_%s_%s.png' % (fgReadSet.expName, iteration))
+        pyplot.ylabel('Fraction of data')
+        pyplot.title('CDF of alignment probabilities for %s at i=%s' % (
+                        self.opt.name,iteration))
+        pyplot.savefig(self.opt.name + '_CDF_prob_%s.png' % iteration)
         pyplot.close()
     
     def __plot_max_probability(self, iteration, treatment):
@@ -1371,10 +1238,11 @@ class PeakDetect:
             group_range = range(group_start, group_end)
             max_probs.append(max([treatment.prob_aligns[i] for i in group_range]))
         pyplot.hist(max_probs, bins=50, facecolor='black', alpha=1)
-        pyplot.xlabel('Highest Alignment Probability ')
+        pyplot.xlim([0,1])
+        pyplot.xlabel('Highest Alignment Probability')
         pyplot.ylabel('Count')
-        pyplot.title('Highest alignment probabilities for all reads at i=%s' % iteration)
-        pyplot.savefig('Max_Prob_%s.png' % iteration)
+        pyplot.title('Highest read alignment probability for %s at i=%s' % (self.opt.name, iteration))
+        pyplot.savefig(self.opt.name + '_max_prob_%s.png' % iteration)
         pyplot.close()
 
 

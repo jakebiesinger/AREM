@@ -27,11 +27,12 @@ import re
 from subprocess import Popen,PIPE
 from optparse import OptionParser
 import gzip
+from math import e as math_e
 
 # ------------------------------------
 # own python modules
 # ------------------------------------
-from MACS14.OptValidator import opt_validate
+from MACS14.OptValidator import opt_validate, allowed_qual_scales
 from MACS14.OutputWriter import *
 from MACS14.Prob import binomial_cdf_inv
 from MACS14.PeakModel import PeakModel,NotEnoughPairsException
@@ -269,16 +270,25 @@ Example: %prog -t ChIP.bam -c Control.bam -f BAM -g h -n test -w --call-subpeaks
                          help="For diagnostics, max fold enrichment to consider. DEFAULT: maximum fold enrichment")
     optparser.add_option("--fe-step",dest="festep",type="int",default=FESTEP,
                          help="For diagnostics, fold enrichment step.  DEFAULT: 20")
-    optparser.add_option("--random_multi",dest="random_select_one_multi",action='store_true',
-                         help="At random, choose only one of the multiple alignments to include from each read. DEFAULT : False")
-    optparser.add_option("--no_greedy_caller",dest="no_greedy_caller",action='store_true',
-                         help="Use MACS default peak caller instead of the greedy caller. This normally results in wider, more diffuse peaks. DEFAULT : False")
-    optparser.add_option("--converge_diff",dest="converge_diff",type="float",default=1e-4,
+    optparser.add_option("--no-EM",dest="no_EM",action='store_true',
+                         help="Do NOT iteratively align multi-reads by E-M. Multi-read probabilities will be based on quality scores or uniform (if --no-quals) DEFAULT : FALSE")
+    optparser.add_option("--EM-converge-diff",dest="min_change",type="float",default=1e-5,
                          help="The minimum entropy change between iterations before halting E-M steps. DEFAULT : %default")
-    optparser.add_option("--no_EM",dest="no_EM",action='store_true',
-                         help="Do NOT iteratively align multiply aligning reads by E-M. DEFAULT : FALSE")
-    optparser.add_option("--show_graphs",dest="show_graphs",action='store_true',
-                         help="generate diagnostic graphs for E-M (requires MATPLOTLIB). DEFAULT : FALSE")
+    optparser.add_option("--EM-min-score",dest="min_score",type='float',default=1e-2,
+                         help="Minimum enrichment score. Windows below this threshold will all look the same to the aligner. DEFAULT : %default")
+    optparser.add_option("--EM-max-score",dest="max_score",type='float',default=None,
+                         help="Maximum enrichment score. Windows above this threshold will all look the same to the aligner, DEFAULT : No Maximum")
+    optparser.add_option("--EM-log-base",dest="enrich_log_base",type='float',default=math_e,
+                         help="The log base used to convert poisson p-values to enrichment scores. Generally, higher values will converge faster, may get caught in local minima, and may drown out enrichment signals by making mediocre-enriched windows look similar to highly-enriched windows. DEFAULT : %default")
+    optparser.add_option("--EM-show-graphs",dest="show_graphs",action='store_true',
+                         help="generate diagnostic graphs for E-M. (requires MATPLOTLIB). DEFAULT : FALSE")
+    optparser.add_option("--quality-scale",dest="qual_scale",choices=allowed_qual_scales, default='auto',
+                         help="Initial alignment probabilities are determined by read quality and mismatches. Each possible alignment is assigned a probability from the product over all bases of either 1-p(ReadError_base) when there is no mismatch, or p(ReadError_base) when the called base disagrees with the reference.  You may also select a uniform initialization. Read quality scale is the must be one of %s." % allowed_qual_scales + " DEFAULT : %default" )
+    optparser.add_option("--random-multi",dest="random_select_one_multi",action='store_true',
+                         help="Convert all multi reads to unique reads by selecting one alignment at random for each read. DEFAULT : False")
+    optparser.add_option("--no-greedy-caller",dest="no_greedy_caller",action='store_true',
+                         help="Use MACS default peak caller instead of the greedy caller. This normally results in wider, less enriched peaks, especially with multi-reads. DEFAULT : False")
+
     return optparser
    
 def cal_max_dup_tags ( genome_size, tags_number, p=1e-5 ):
@@ -297,36 +307,32 @@ def load_tag_files_options ( options ):
     if options.format == "ELANDMULTIPET":
         options.info("#1 read PET treatment tags...")
         tp = options.parser(open2(options.tfile[0]),open2(options.tfile[1]),options.petdist)
-        treat = tp.build_fwtrack()
+        treat = tp.build_fwtrack(options)
         ttsize = tp.tsize()
         if not options.tsize: # override tsize if user specified --tsize
             options.tsize = ttsize
         treat.sort()
         if options.cfile:
             options.info("#1.2 read input tags...")
-            control = options.parser(open2(options.cfile[0]),open2(options.cfile[1]),options.petdist).build_fwtrack()
+            control = options.parser(open2(options.cfile[0]),
+                                     open2(options.cfile[1]),
+                                     options.petdist).build_fwtrack(options)
             control.sort()
         else:
             control = None
-    else:                               # for most single end sequencing
+    else:                             # for most single end sequencing
         options.info("#1 read treatment tags...")
         tp = options.parser(open2(options.tfile))
         
         ttsize = tp.tsize()
-        if not options.tsize:           # override tsize if user specified --tsize
+        if not options.tsize:         # override tsize if user specified --tsize
             options.tsize = ttsize
-        if options.format == "BOWTIE":
-            treat = tp.build_fwtrack(random_select_one_multi=options.random_select_one_multi)
-        else:
-            treat = tp.build_fwtrack()
+        treat = tp.build_fwtrack(options)
         treat.sort()
         if options.cfile:
             options.info("#1.2 read input tags...")
             cp = options.parser(open2(options.cfile))
-            if options.format == "BOWTIE":
-                control = cp.build_fwtrack(random_select_one_multi=options.random_select_one_multi)
-            else:
-                control = cp.build_fwtrack()
+            control = cp.build_fwtrack(options)
             control.sort()
         else:
             control = None

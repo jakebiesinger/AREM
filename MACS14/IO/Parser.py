@@ -21,6 +21,8 @@ import logging
 import struct
 import gzip
 from random import sample as random_sample
+from math import log as mathlog
+from operator import mul as op_multipy
 from MACS14.Constants import *
 from MACS14.IO.FeatIO import FWTrackII
 # ------------------------------------
@@ -57,7 +59,7 @@ def guess_parser ( fhd ):
         s = p.sniff()
         if s:
             logging.info("Detected format is: %s" % (f) )
-            return f, p
+            return p
     raise Exception("Can't detect format!")
 
 # ------------------------------------
@@ -75,7 +77,10 @@ class StrandFormatError(Exception):
         
     def __str__ (self):
         return repr( "Strand information can not be recognized in this line: \"%s\",\"%s\"" % (self.string,self.strand) )
-        
+
+class BaseQualityError(Exception):
+    pass
+    
 class GenericParser:
     """Generic Parser class.
 
@@ -88,10 +93,10 @@ class GenericParser:
     def tsize(self):
         return
 
-    def build_fwtrack (self):
+    def build_fwtrack (self, opt):
         return 
 
-    def __fw_parse_line (self, thisline ):
+    def _fw_parse_line (self, thisline ):
         return
 
     def sniff (self):
@@ -108,6 +113,145 @@ class GenericParser:
                 self.fhd.seek(0)
                 return t
 
+class MultiReadParser:
+    """Parser capable of handling reads with more than one mapping.
+    
+    Inherit from this class to allow your parser to handle multi-reads.
+    You must provide _fw_parse_line, which must return a tuple of 
+    (chromosome,fpos,strand,tagname,qualstr,mismatches) instead of just 
+    (chromosome,fpos,strand) as the other parsers do.
+    
+    NOTE: input data must be sorted by tagname to handle multireads correctly.
+    """
+    
+    def build_fwtrack (self, opt):
+        """Build FWTrackII from all lines, return a FWTrackII object.
+
+        Handle multi-reads here by building a probability and enrichment index
+        or select only one alignment from each multi-read. 
+        Initial alignment probabilities are set from read/mismatch qualities
+        or from a uniform distribution.
+        """
+        fwtrack = FWTrackII()
+        i = 0
+        m = 0
+        recent_tags = []
+        random_select_one_multi = opt.random_select_one_multi
+        min_score = opt.min_score
+        if opt.qual_scale == 'auto':
+            opt.qual_scale = self._guess_qual_scale()
+        use_uniform = False
+        if opt.qual_scale == 'uniform':
+            use_uniform = True
+            qual_offset = 0
+        if opt.qual_scale == 'sanger+33':
+            qual_offset = 33
+        elif opt.qual_scale == 'illumina+64':
+            qual_offset = 64
+
+        for grouplines in self._group_by_name(self.fhd):
+            fwtrack.total+=1
+            if len(grouplines) > 1:
+                if random_select_one_multi:
+                    grouplines = random_sample(grouplines, 1)
+                else:
+                    fwtrack.group_starts.append(fwtrack.total_multi)  # start index of read group
+                    # TODO: might want to be working in log space-- if many mismatches, we'll lose precision
+                    mm_probs = [10**((qualstr[i] - qual_offset)/-10.) 
+                                for i in range(len(qualstr))]
+                    if qualstr[i] - qual_offset < 0:  # quick & dirty check-- only looking at last base
+                        raise BaseQualityError("Specified quality scale yielded a negative phred score!  You probably have the wrong scale")
+                    match_probs = [1 - mm_probs[i] for i in 
+                                   range(len(qualstr))]
+                    read_probs = []
+                    total_prob = 0
+                    for index, (chromosome,fpos,strand, qualstr,
+                                   mismatches) in enumerate(grouplines):
+                        # update with multi-index
+                        grouplines[index] = (chromosome, (fpos, 
+                                                fwtrack.total_multi), strand,
+                                                qualstr, mismatches)
+                        #mismatches = set(mismatches)  # faster?
+                        base_probs = [mm_probs[i] if i in mismatches else match_probs[i]
+                                        for i in range(len(qualstr))]
+                        prob = reduce(op_multipy, base_probs)
+                        read_probs.append(prob)
+                        total_prob += prob
+                        fwtrack.total_multi += 1
+                    if use_uniform:
+                        normed_probs = [1./len(grouplines)] * len(grouplines)
+                    else:
+                        normed_probs = [p / total_prob for p in read_probs]
+                    fwtrack.prob_aligns.extend(normed_probs)
+                    fwtrack.enrich_scores.extend([min_score] * len(grouplines))
+            for chromosome,fpos,strand,qualstr,mismatches in grouplines:
+                i+=1
+                if i == 1000000:
+                    m += 1
+                    logging.info(" %d" % (m*1000000))
+                    i=0
+                if not fpos or not chromosome:
+                    continue
+                fwtrack.add_loc(chromosome,fpos,strand)
+        return fwtrack
+    
+    def _guess_qual_scale(self):
+        """Guess which quality scale the file is using by reading 
+        the first 100 reads.
+        """
+        qual_min, qual_max = None, None
+        n = 0
+        m = 0
+        while n<100 and m<1000:
+            m += 1
+            thisline = self.fhd.readline()
+            (chromosome,fpos,strand, tagname, qualstr, mismatches
+                ) = self._fw_parse_line(thisline)
+            if not fpos or not chromosome:
+                continue
+            if qual_min is None or qual_max is None:
+                qual_min = min(qualstr)
+                qual_max = max(qualstr)
+            else:
+                qual_min = min(qual_min, min(qualstr))
+                qual_max = max(qual_max, max(qualstr))
+            n += 1
+        self.fhd.seek(0)
+        if qual_min < 33:
+            raise BaseQualityError("Unrecognized scale for read quality: min %s, max %s" % (qual_min, qual_max))
+        elif qual_min <= qual_max <= 73:
+            # likely Sanger quals (ascii 33 to 73) since illumina quals would
+            # have to have terrible read qualities to fall in this category
+            return 'sanger+33'
+        elif 64 <= qual_min <= qual_max <= 104:
+            # likely Illumina quals (ascii 64 to 104)
+            return 'illumina+64'
+        else:
+            raise BaseQualityError("Unrecognized scale for read quality: min %s, max %s" % (qual_min, qual_max))
+
+    
+    def _group_by_name(self, filelines):
+        """Group multi-reads together by their tag name. 
+        Yields a list of alignments for each read 
+        
+        NOTE: This only works if the filelines themselves are sorted by tagname        
+        """
+        cur_tagname = None
+        aligns = []
+        for thisline in filelines:
+            (chromosome,fpos,strand,tagname,qualstr,mismatches
+                ) = self._fw_parse_line(thisline)
+            if cur_tagname is None:
+                cur_tagname = tagname  # first line
+            elif cur_tagname != tagname:
+                yield aligns  # ID changed, so report all alignments for the previous read
+                cur_tagname = tagname
+                aligns = []
+            aligns.append((chromosome,fpos,strand, qualstr, mismatches))
+        if cur_tagname is not None:
+            yield aligns  # might be one last alignment-- reported when ID changes
+    
+
 class BEDParser(GenericParser):
     """File Parser Class for tabular File.
 
@@ -122,7 +266,7 @@ class BEDParser(GenericParser):
         while n<10 and m<1000:
             m += 1
             thisline = self.fhd.readline()
-            (chromosome,fpos,strand) = self.__fw_parse_line(thisline)
+            (chromosome,fpos,strand) = self._fw_parse_line(thisline)
             if not fpos or not chromosome:
                 continue
             thisline = thisline.rstrip()
@@ -132,7 +276,7 @@ class BEDParser(GenericParser):
         self.fhd.seek(0)
         return int(s/n)
 
-    def build_fwtrack (self):
+    def build_fwtrack (self, opt):
         """Build FWTrackII from all lines, return a FWTrackII object.
 
         Note: All locations will be merged (exclude the same
@@ -148,7 +292,7 @@ class BEDParser(GenericParser):
         i = 0
         m = 0
         for thisline in self.fhd:
-            (chromosome,fpos,strand) = self.__fw_parse_line(thisline)
+            (chromosome,fpos,strand) = self._fw_parse_line(thisline)
             i+=1
             if i == 1000000:
                 m += 1
@@ -159,7 +303,7 @@ class BEDParser(GenericParser):
             fwtrack.add_loc(chromosome,fpos,strand)
         return fwtrack
     
-    def __fw_parse_line (self, thisline ):
+    def _fw_parse_line (self, thisline ):
         thisline = thisline.rstrip()
         if not thisline or thisline[:5]=="track" or thisline[:7]=="browser" or thisline[0]=="#": return ("comment line",None,None)
 
@@ -203,7 +347,7 @@ class ELANDResultParser(GenericParser):
         while n<10 and m<1000:
             m += 1
             thisline = self.fhd.readline()
-            (chromosome,fpos,strand) = self.__fw_parse_line(thisline)
+            (chromosome,fpos,strand) = self._fw_parse_line(thisline)
             if not fpos or not chromosome:
                 continue
             thisline = thisline.rstrip()
@@ -213,7 +357,7 @@ class ELANDResultParser(GenericParser):
         self.fhd.seek(0)
         return int(s/n)
 
-    def build_fwtrack (self):
+    def build_fwtrack (self, opt):
         """Build FWTrackII from all lines, return a FWTrackII object.
 
         """
@@ -221,7 +365,7 @@ class ELANDResultParser(GenericParser):
         i = 0
         m = 0
         for thisline in self.fhd:
-            (chromosome,fpos,strand) = self.__fw_parse_line(thisline)
+            (chromosome,fpos,strand) = self._fw_parse_line(thisline)
             i+=1
             if i == 1000000:
                 m += 1
@@ -232,7 +376,7 @@ class ELANDResultParser(GenericParser):
             fwtrack.add_loc(chromosome,fpos,strand)
         return fwtrack
     
-    def __fw_parse_line (self, thisline ):
+    def _fw_parse_line (self, thisline ):
         #if thisline.startswith("#") or thisline.startswith("track") or thisline.startswith("browser"): return ("comment line",None,None) # comment line is skipped
         thisline = thisline.rstrip()
         if not thisline: return ("blank",None,None)
@@ -293,7 +437,7 @@ class ELANDMultiParser(GenericParser):
         while n<10 and m<1000:
             m += 1
             thisline = self.fhd.readline()
-            (chromosome,fpos,strand) = self.__fw_parse_line(thisline)
+            (chromosome,fpos,strand) = self._fw_parse_line(thisline)
             if not fpos or not chromosome:
                 continue
             thisline = thisline.rstrip()
@@ -303,7 +447,7 @@ class ELANDMultiParser(GenericParser):
         self.fhd.seek(0)
         return int(s/n)
 
-    def build_fwtrack (self):
+    def build_fwtrack (self, opt):
         """Build FWTrackII from all lines, return a FWTrackII object.
 
         Note only the unique match for a tag is kept.
@@ -312,7 +456,7 @@ class ELANDMultiParser(GenericParser):
         i = 0
         m = 0
         for thisline in self.fhd:
-            (chromosome,fpos,strand) = self.__fw_parse_line(thisline)
+            (chromosome,fpos,strand) = self._fw_parse_line(thisline)
             i+=1
             if i == 1000000:
                 m += 1
@@ -323,7 +467,7 @@ class ELANDMultiParser(GenericParser):
             fwtrack.add_loc(chromosome,fpos,strand)
         return fwtrack
     
-    def __fw_parse_line (self, thisline ):
+    def _fw_parse_line (self, thisline ):
         if not thisline: return (None,None,None)
         thisline = thisline.rstrip()
         if not thisline: return ("blank",None,None)
@@ -375,7 +519,7 @@ class ELANDExportParser(GenericParser):
         while n<10 and m<1000:
             m += 1
             thisline = self.fhd.readline()
-            (chromosome,fpos,strand) = self.__fw_parse_line(thisline)
+            (chromosome,fpos,strand) = self._fw_parse_line(thisline)
             if not fpos or not chromosome:
                 continue
             thisline = thisline.rstrip()
@@ -385,7 +529,7 @@ class ELANDExportParser(GenericParser):
         self.fhd.seek(0)
         return int(s/n)
 
-    def build_fwtrack (self):
+    def build_fwtrack (self, opt):
         """Build FWTrackII from all lines, return a FWTrackII object.
 
         Note only the unique match for a tag is kept.
@@ -394,7 +538,7 @@ class ELANDExportParser(GenericParser):
         i = 0
         m = 0
         for thisline in self.fhd:
-            (chromosome,fpos,strand) = self.__fw_parse_line(thisline)
+            (chromosome,fpos,strand) = self._fw_parse_line(thisline)
             i+=1
             if i == 1000000:
                 m += 1
@@ -405,7 +549,7 @@ class ELANDExportParser(GenericParser):
             fwtrack.add_loc(chromosome,fpos,strand)
         return fwtrack
     
-    def __fw_parse_line (self, thisline ):
+    def _fw_parse_line (self, thisline ):
         #if thisline.startswith("#") : return ("comment line",None,None) # comment line is skipped
         thisline = thisline.rstrip()
         if not thisline: return ("blank",None,None)
@@ -461,7 +605,7 @@ class PairEndELANDMultiParser(GenericParser):
         self.fhd.seek(0)
         return int(s/n)
 
-    def build_fwtrack (self, dist=200):
+    def build_fwtrack (self, opt, dist=200):
         """Build FWTrackII from all lines, return a FWTrackII object.
 
         lfhd: the filehandler for left tag file
@@ -494,7 +638,7 @@ class PairEndELANDMultiParser(GenericParser):
             while 1:
                 lline = lnext()
                 rline = rnext()
-                (chromname,fpos,strand) = self.__fw_parse_line(lline,rline)
+                (chromname,fpos,strand) = self._fw_parse_line(lline,rline)
 
                 i+=1
                 if i == 1000000:
@@ -515,7 +659,7 @@ class PairEndELANDMultiParser(GenericParser):
             pass
         return fwtrack
     
-    def __fw_parse_line (self, leftline, rightline ):
+    def _fw_parse_line (self, leftline, rightline ):
         # >HWI-EAS275_5:4:100:340:1199/1	GTGCTGGTGGAGAGGGCAAACCACATTGACATGCT	2:1:0	chrI.fa:15061365F0,15068562F0,chrIV.fa:4783988R1
         # >HWI-EAS275_5:4:100:340:1199/2	GGTGGTGTGTCCCCCTCTCCACCAGCACTGCGGCT	3:0:0	chrI.fa:15061451R0,15068648R0,15071742R0
 
@@ -609,7 +753,7 @@ class SAMParser(GenericParser):
     1. Sequence name 
     2. Bitwise flag
     3. Reference name
-    4. 1-based leftmost position fo clipped alignment
+    4. 1-based leftmost position of clipped alignment
     5. Mapping quality
     6. CIGAR string
     7. Mate Reference Name
@@ -645,7 +789,7 @@ class SAMParser(GenericParser):
         while n<10 and m<1000:
             m += 1
             thisline = self.fhd.readline()
-            (chromosome,fpos,strand) = self.__fw_parse_line(thisline)
+            (chromosome,fpos,strand) = self._fw_parse_line(thisline)
             if not fpos or not chromosome:
                 continue
             thisline = thisline.rstrip()
@@ -655,7 +799,7 @@ class SAMParser(GenericParser):
         self.fhd.seek(0)
         return int(s/n)
 
-    def build_fwtrack (self):
+    def build_fwtrack (self, opt):
         """Build FWTrackII from all lines, return a FWTrackII object.
 
         Note only the unique match for a tag is kept.
@@ -664,7 +808,7 @@ class SAMParser(GenericParser):
         i = 0
         m = 0
         for thisline in self.fhd:
-            (chromosome,fpos,strand) = self.__fw_parse_line(thisline)
+            (chromosome,fpos,strand) = self._fw_parse_line(thisline)
             i+=1
             if i == 1000000:
                 m += 1
@@ -675,7 +819,7 @@ class SAMParser(GenericParser):
             fwtrack.add_loc(chromosome,fpos,strand)
         return fwtrack
     
-    def __fw_parse_line (self, thisline ):
+    def _fw_parse_line (self, thisline ):
         thisline = thisline.rstrip()
         if not thisline: return ("blank",None,None)
         if thisline[0]=="@": return ("comment line",None,None) # header line started with '@' is skipped
@@ -780,7 +924,7 @@ class BAMParser(GenericParser):
         logging.info("tag size: %d" % int(s/n))
         return int(s/n)
 
-    def build_fwtrack (self):
+    def build_fwtrack (self, opt):
         """Build FWTrackII from all lines, return a FWTrackII object.
 
         Note only the unique match for a tag is kept.
@@ -856,7 +1000,7 @@ class BAMParser(GenericParser):
 
 ### End ###
 
-class BowtieParser(GenericParser):
+class BowtieParser(MultiReadParser, GenericParser):
     """File Parser Class for map files from Bowtie or MAQ's maqview
     program.
 
@@ -873,78 +1017,17 @@ class BowtieParser(GenericParser):
         while n<10 and m<1000:
             m += 1
             thisline = self.fhd.readline()
-            (chromosome,fpos,strand, tagname) = self.__fw_parse_line(thisline)
+            (chromosome,fpos,strand, tagname, qualstr, mismatches
+                ) = self._fw_parse_line(thisline)
             if not fpos or not chromosome:
                 continue
-            thisline = thisline.rstrip()
-            thisfields = thisline.split()
+            thisfields = thisline.split('\t')
             s += len(thisfields[4])
             n += 1
         self.fhd.seek(0)
-        return int(s/n)
-
-    def build_fwtrack (self, random_select_one_multi = False):
-        """Build FWTrackII from all lines, return a FWTrackII object.
-
-        Note: All locations will be merged (exclude the same
-        location) then sorted after the track is built.
-
-        If both_strand is True, it will store strand information in
-        FWTrackII object.
-
-        if do_merge is False, it will not merge the same location after
-        the track is built.
-        """
-        fwtrack = FWTrackII()
-        i = 0
-        m = 0
-        recent_tags = []
-        for grouplines in self.__group_by_name(self.fhd):
-            fwtrack.total+=1
-            if len(grouplines) > 1:
-                if random_select_one_multi:
-                    grouplines = random_sample(grouplines, 1)
-                else:
-                    fwtrack.group_starts.append(fwtrack.total_multi)  # starting index of this group
-                    # add index info to fpos
-                    for index, (chromosome,fpos,strand) in enumerate(grouplines):
-                        grouplines[index] = (chromosome, (fpos, fwtrack.total_multi), strand)
-                        fwtrack.total_multi += 1
-                    # add multi read info
-                    fwtrack.prob_aligns.extend([1. / len(grouplines)] * len(grouplines))  # uniform to start
-                    fwtrack.enrich_scores.extend([1.] * len(grouplines))
-            for chromosome,fpos,strand in grouplines:
-                i+=1
-                if i == 1000000:
-                    m += 1
-                    logging.info(" %d" % (m*1000000))
-                    i=0
-                if not fpos or not chromosome:
-                    continue
-                fwtrack.add_loc(chromosome,fpos,strand)
-        return fwtrack
+        return int(s/n)    
     
-    def __group_by_name(self, filelines):
-        """
-        Group the incoming tags by their tag name, yielding lists of lines of tags.
-        Assumes that the filelines themselves are sorted by tagname
-        
-        """
-        cur_tagname = None
-        aligns = []
-        for thisline in filelines:
-            (chromosome,fpos,strand,tagname) = self.__fw_parse_line(thisline)
-            if cur_tagname is None:
-                cur_tagname = tagname  # first line
-            elif cur_tagname != tagname:
-                yield aligns  # ID changed, so report all alignments for the previous read
-                cur_tagname = tagname
-                aligns = []
-            aligns.append((chromosome,fpos,strand))
-        if cur_tagname is not None:
-            yield aligns  # might be one last alignment-- reported when ID changes
-    
-    def __fw_parse_line (self, thisline ):
+    def _fw_parse_line (self, thisline ):
         """
         The following definition comes from bowtie website:
         
@@ -985,13 +1068,22 @@ class BowtieParser(GenericParser):
         (5') end of the read.
 
         """
-        thisline = thisline.rstrip()
+        thisline = thisline.rstrip('\n')
         if not thisline: return ("blank",None,None)
         if thisline[0]=="#": return ("comment line",None,None) # comment line is skipped
-        thisfields = thisline.split()
+        thisfields = thisline.split('\t')
         
         tagname = thisfields[0]
         chromname = thisfields[2]
+        qualstr = thisfields[5]
+        qualstr = struct.unpack('%sb'%len(qualstr), qualstr)  # pretend the qualstr is a short array
+        # mismatches of form: 2:T>G,38:C>A,42:C>A
+        mismatches = thisfields[7]
+        if len(mismatches) > 0:
+            mismatches = [int(sub[:sub.index(':')]) for sub in 
+                          mismatches.split(',')]
+        else:
+            mismatches = []
         try:
             chromname = chromname[:chromname.rindex(".fa")]
         except ValueError:
@@ -1000,11 +1092,11 @@ class BowtieParser(GenericParser):
             if thisfields[1] == "+":
                 return (chromname,
                         int(thisfields[3]),
-                        0, tagname)
+                        0, tagname, qualstr, mismatches)
             elif thisfields[1] == "-":
                 return (chromname,
                         int(thisfields[3])+len(thisfields[4]),
-                        1, tagname)
+                        1, tagname, qualstr, mismatches)
             else:
                 raise StrandFormatError(thisline,thisfields[1])
 

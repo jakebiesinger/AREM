@@ -19,6 +19,8 @@ the distribution).
 # ------------------------------------
 from math import exp
 from math import log
+from math import floor
+from math import ceil
 # ------------------------------------
 # constants
 # ------------------------------------
@@ -30,6 +32,18 @@ EXPSTEP  = exp(-LSTEP)
 # ------------------------------------
 
 import math
+
+def memoize(function):
+    '''Decorator to memoize a function with immutable args'''
+    cache = {}
+    def decorated_function(*args):
+        if args in cache:
+            return cache[args]
+        else:
+            val = function(*args)
+            cache[args] = val
+            return val
+    return decorated_function
 
 def normal_01_cdf ( x ):
     """NORMAL_01_CDF evaluates the Normal 01 CDF.
@@ -177,7 +191,24 @@ def normal_cdf (z, mu = 0.0, sigma2 = 1.0, lower=True):
         alnorm = 1.0 - alnorm
     return alnorm
 
-def poisson_cdf (n, lam,lower=True, continuous=False):
+
+def poisson_cdf (n, lam, lower=True):
+    """Poisson CDF evaluater with linear approximation for real-valued n's.
+    
+    To handle multi-reads properly, we do linear interpolation of the cdf 
+    between floor(n) and ceil(n).
+    """
+    lam = round(lam, 3)
+    #lam = int((lam + .0005) * 1000) / 1000.   # speedup-- round lambda to thousands place
+    floor_n = floor(n)
+    ceil_n = floor_n + 1
+    floor_cdf = __poisson_cdf(floor_n, lam, lower)
+    ceil_cdf = __poisson_cdf(ceil_n, lam, lower)
+    mid_cdf = floor_cdf + (n - floor_n) * (ceil_cdf - floor_cdf)
+    return mid_cdf
+
+@memoize
+def __poisson_cdf (n, lam, lower):
     """Poisson CDF evaluater.
 
     This is a more stable CDF function. It can tolerate large lambda
@@ -195,16 +226,16 @@ def poisson_cdf (n, lam,lower=True, continuous=False):
 
     if lower:
         if lam > 700:
-            return __poisson_cdf_large_lambda (k, lam)
+            return __poisson_cdf_large_lambda(k, lam)
         else:
-            return __poisson_cdf(k,lam)
+            return __poisson_cdf_small_lambda(k,lam)
     else:
         if lam > 700:
-            return __poisson_cdf_Q_large_lambda (k, lam)
+            return __poisson_cdf_Q_large_lambda(k, lam)
         else:
-            return __poisson_cdf_Q(k,lam)
+            return __poisson_cdf_Q_small_lambda(k,lam)
 
-def __poisson_cdf (k,a):
+def __poisson_cdf_small_lambda (k,a):
     """Poisson CDF For small lambda. If a > 745, this will return
     incorrect result.
 
@@ -252,7 +283,7 @@ def __poisson_cdf_large_lambda ( k,a ):
     cdf *= lastexp
     return cdf
 
-def __poisson_cdf_Q (k,a):
+def __poisson_cdf_Q_small_lambda (k,a):
     """internal Poisson CDF evaluater for upper tail with small
     lambda.
 
