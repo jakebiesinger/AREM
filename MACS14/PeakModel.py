@@ -86,11 +86,11 @@ class PeakModel:
         self.peaksize = 2*self.bw
         self.min_tags = float(self.treatment.total) * self.lmfold * self.peaksize / self.gz /2 # mininum unique hits on single strand
         self.max_tags = float(self.treatment.total) * self.umfold * self.peaksize / self.gz /2 # maximum unique hits on single strand
-        #print self.min_tags
-        #print self.max_tags
+        self.debug("#2 tags required in model: %.2f min, %.2f max" % (self.min_tags, self.max_tags))
         # use treatment data to build model
         paired_peakpos = self.__paired_peaks ()
         # select up to 1000 pairs of peaks to build model
+        # Jake - odd that he selects the first 1000 rather than at random.
         num_paired_peakpos = 0
         num_paired_peakpos_remained = self.max_pairnum
         num_paired_peakpos_picked = 0
@@ -279,7 +279,18 @@ Summary of Peak Model:
 
         for i in range(1,len(taglist)):
             pos = taglist[i]
-
+            
+            # Jake - This step seems ad-hoc. a stretch of bw*2 is considered,
+            # always originating at the next read. Say the stretch divides a
+            # peak in half and is most potent in the middle.  Then the counts 
+            # will be high at the end of this peak and the beginning of the next.
+            # ** one solution would be to do normal peak calling and project the 
+            # tags down to the line, looking for contiguous reads that pass 
+            # the mfold params.
+            # ** That or keep the bw*2 size, but use the smooth-greedy method to
+            # put the bw in the center of the peak.
+            # ** I think it's wise to keep the multi-reads out of this process. 
+            # otherwise, we might end up modeling the lengths of some transposons!
             if (pos-current_tag_list[0]+1) > self.peaksize: # call peak in current_tag_list
                 # a peak will be called if tag number is ge min tags.
                 if len(current_tag_list) >= self.min_tags and len(current_tag_list) <= self.max_tags:

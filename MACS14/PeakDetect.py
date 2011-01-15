@@ -117,7 +117,7 @@ class PeakDetect:
                 text += "%s\t%d\t%d\t%d" % (chrom,peak[0]+1,peak[1],peak[2])
                 peak_summit_relative_pos = peak[3]-peak[0]
                 text += "\t%d" % (peak_summit_relative_pos)
-                text += "\t%d\t%.2f" % (peak[5],peak[6])
+                text += "\t%.2f\t%.2f" % (peak[5],peak[6])
                 text += "\t%.2f" % (peak[7])
                 if self.control:
                     if peak[8]>=100:
@@ -137,7 +137,7 @@ class PeakDetect:
                 text += "%s\t%d\t%d\t%d" % (chrom,peak[0]+1,peak[1],peak[2])
                 peak_summit_relative_pos = peak[3]-peak[0]+1
                 text += "\t%d" % (peak_summit_relative_pos)
-                text += "\t%d\t%.2f" % (peak[5],peak[6])
+                text += "\t%.2f\t%.2f" % (peak[5],peak[6])
                 text += "\t%.2f" % (peak[7])
                 text+= "\n"
         return text
@@ -254,6 +254,8 @@ class PeakDetect:
         self.info("#3 call peak candidates")
         peak_candidates = self.__call_peaks_from_trackI (self.treat, self.treat.prob_aligns)
         
+        # Jake - Seems off to me that we call treatment candidate peaks before
+        # shifting the control data- I get high c_peak_lambdas if we shift control first
         self.info("#3 shift control data")
         self.info("#3 merge +/- strand of control data")
         self.__shift_trackI(self.control)
@@ -1079,6 +1081,7 @@ class PeakDetect:
             self.__plot_EM_state(0, final_regions, peak_posns, in_candidate)
         prev_entropy = None
         log_base = self.opt.enrich_log_base
+        prior_prob_map = self.opt.prior_prob_map
         for iteration in itertools_count(1):  # until convergence
             cur_entropy = list(self.__get_read_entropy(self.treat))
             if prev_entropy is not None:  # check for convergence
@@ -1115,11 +1118,18 @@ class PeakDetect:
                 else:
                     group_end = len(treatment.prob_aligns)
                 group_range = range(group_start, group_end)
-                #print [treatment.enrich_scores[j] for j in group_range]
-                #print [treatment.prob_aligns[j] for j in group_range]
-                enrich_total = sum(treatment.enrich_scores[j] for j in group_range)
-                for j in group_range:
-                    treatment.prob_aligns[j] = treatment.enrich_scores[j] / enrich_total
+                if prior_prob_map:
+                    enrich_vals = [0.] * group_end
+                    enrich_total = 0.
+                    for j in group_range:
+                        enrich_vals[j - group_start] = treatment.enrich_scores[j] * treatment.prior_aligns[j]
+                        enrich_total += enrich_vals[j - group_start]
+                    for j in group_range:
+                        treatment.prob_aligns[j] = enrich_vals[j-group_start] / enrich_total
+                else:
+                    enrich_total = [treatment.enrich_scores[j] for j in group_range]
+                    for j in group_range:
+                        treatment.prob_aligns[j] = treatment.enrich_scores[j] / enrich_total
             if show_graphs:
                 self.__plot_EM_state(iteration, final_regions, peak_posns, in_candidate)
             prev_entropy = cur_entropy
@@ -1386,8 +1396,8 @@ class PeakDetect:
                         local_lambda = max(lambda_bg,tlambda_lregion)
                     else:
                         # for experiment w/ control
-                        outfile = open('lambdas.txt', 'a')
-                        outfile.write('\t'.join(map(str, [lambda_bg,clambda_peak,clambda_lregion,clambda_sregion])) + '\n')
+                        #outfile = open('lambdas.txt', 'a')
+                        #outfile.write('\t'.join(map(str, [lambda_bg,clambda_peak,clambda_lregion,clambda_sregion])) + '\n')
                         local_lambda = max(lambda_bg,clambda_peak,clambda_lregion,clambda_sregion)
                     if chrom not in all_local_lambdas:
                         all_local_lambdas[chrom] = []

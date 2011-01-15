@@ -38,6 +38,14 @@ from MACS14.Prob import binomial_cdf_inv
 from MACS14.PeakModel import PeakModel,NotEnoughPairsException
 from MACS14.PeakDetect import PeakDetect
 from MACS14.Constants import *
+## ------------------------------------
+## Drop-in debugging (with Ctrl-C)
+## ------------------------------------
+#import signal
+#def int_handler(signal, frame):
+    #import pdb
+    #pdb.set_trace()
+#signal.signal(signal.SIGINT, int_handler)
 # ------------------------------------
 # Main function
 # ------------------------------------
@@ -63,6 +71,9 @@ def main():
     t0 = treat.total
     tagsinfo += "# total tags in treatment: %d\n" % (t0)
     info("#1  total tags in treatment: %d" % (t0))
+    if treat.total_multi > 0:
+        tagsinfo += "# total alignments from multi-reads in treatment: %d\n" % (treat.total_multi)
+        info("#1  # total alignments from multi-reads in treatment: %d\n" % (treat.total_multi))
     if not options.keepallduplicates and treat.total_multi == 0:
         info("#1 calculate max duplicate tags in single position based on binomal distribution...")
         treatment_max_dup_tags = cal_max_dup_tags(options.gsize,t0)
@@ -80,6 +91,9 @@ def main():
         c0 = control.total
         tagsinfo += "# total tags in control: %d\n" % (c0)
         info("#1  total tags in control: %d" % (c0))
+        if treat.total_multi > 0:
+            tagsinfo += "# total alignments from multi-reads in control: %d\n" % (control.total_multi)
+            info("#1  # total alignments from multi-reads in control: %d\n" % (control.total_multi))
         if not options.keepallduplicates and control.total_multi == 0:
             info("#1  for control, calculate max duplicate tags in single position based on binomal distribution...")
             control_max_dup_tags = cal_max_dup_tags(options.gsize,c0)
@@ -286,8 +300,12 @@ Example: %prog -t ChIP.bam -c Control.bam -f BAM -g h -n test -w --call-subpeaks
                          help="Initial alignment probabilities are determined by read quality and mismatches. Each possible alignment is assigned a probability from the product over all bases of either 1-p(ReadError_base) when there is no mismatch, or p(ReadError_base) when the called base disagrees with the reference.  You may also select a uniform initialization. Read quality scale is the must be one of %s." % allowed_qual_scales + " DEFAULT : %default" )
     optparser.add_option("--random-multi",dest="random_select_one_multi",action='store_true',
                          help="Convert all multi reads to unique reads by selecting one alignment at random for each read. DEFAULT : False")
+    optparser.add_option("--no-multi",dest="no_multi_reads",action='store_true',
+                         help="Throw away all reads that have more than one alignment")
     optparser.add_option("--no-greedy-caller",dest="no_greedy_caller",action='store_true',
                          help="Use MACS default peak caller instead of the greedy caller. This normally results in wider, less enriched peaks, especially with multi-reads. DEFAULT : False")
+    optparser.add_option("--use-map-probs",dest="prior_prob_map",action='store_true',
+                         help="Use mapping probabilities as priors in each update step, rather than just an initialization. DEFAULT : False")
 
     return optparser
    

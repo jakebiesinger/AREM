@@ -137,6 +137,7 @@ class MultiReadParser:
         m = 0
         recent_tags = []
         random_select_one_multi = opt.random_select_one_multi
+        no_multi_reads = opt.no_multi_reads
         min_score = opt.min_score
         if opt.qual_scale == 'auto':
             opt.qual_scale = self._guess_qual_scale()
@@ -152,16 +153,20 @@ class MultiReadParser:
         for grouplines in self._group_by_name(self.fhd):
             fwtrack.total+=1
             if len(grouplines) > 1:
-                if random_select_one_multi:
+                if no_multi_reads:  # throw away multi-reads
+                    fwtrack.total -= 1
+                    continue
+                elif random_select_one_multi:  # choose one alignment at random
                     grouplines = random_sample(grouplines, 1)
                 else:
                     fwtrack.group_starts.append(fwtrack.total_multi)  # start index of read group
                     # TODO: might want to be working in log space-- if many mismatches, we'll lose precision
-                    mm_probs = [10**((qualstr[i] - qual_offset)/-10.) 
-                                for i in range(len(qualstr))]
-                    if qualstr[i] - qual_offset < 0:  # quick & dirty check-- only looking at last base
+                    qualstr = grouplines[0][3]  # all quality strings are shared across the group
+                    mm_probs = [10**((qualstr[b] - qual_offset)/-10.) 
+                                for b in range(len(qualstr))]
+                    if qualstr[b] - qual_offset < 0:  # quick & dirty check-- only looking at last base
                         raise BaseQualityError("Specified quality scale yielded a negative phred score!  You probably have the wrong scale")
-                    match_probs = [1 - mm_probs[i] for i in 
+                    match_probs = [1 - mm_probs[b] for b in 
                                    range(len(qualstr))]
                     read_probs = []
                     total_prob = 0
@@ -172,8 +177,8 @@ class MultiReadParser:
                                                 fwtrack.total_multi), strand,
                                                 qualstr, mismatches)
                         #mismatches = set(mismatches)  # faster?
-                        base_probs = [mm_probs[i] if i in mismatches else match_probs[i]
-                                        for i in range(len(qualstr))]
+                        base_probs = [mm_probs[b] if b in mismatches else match_probs[b]
+                                        for b in range(len(qualstr))]
                         prob = reduce(op_multipy, base_probs)
                         read_probs.append(prob)
                         total_prob += prob
@@ -183,12 +188,13 @@ class MultiReadParser:
                     else:
                         normed_probs = [p / total_prob for p in read_probs]
                     fwtrack.prob_aligns.extend(normed_probs)
+                    fwtrack.prior_aligns.extend(normed_probs)
                     fwtrack.enrich_scores.extend([min_score] * len(grouplines))
             for chromosome,fpos,strand,qualstr,mismatches in grouplines:
                 i+=1
                 if i == 1000000:
                     m += 1
-                    logging.info(" %d" % (m*1000000))
+                    logging.info(" %d alignments read." % (m*1000000))
                     i=0
                 if not fpos or not chromosome:
                     continue

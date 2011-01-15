@@ -254,6 +254,7 @@ class FWTrackII:
         self.total = 0                  # total tags
         self.annotation = anno   # need to be figured out
         self.prob_aligns = array(FBYTE4, [])
+        self.prior_aligns = array(FBYTE4, [])  # prior prob of aligning- based on quals
         self.enrich_scores = array(FBYTE4, [])
         self.group_starts = array(BYTE4, [])
         self.total_multi = 0
