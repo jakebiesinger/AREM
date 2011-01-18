@@ -1118,7 +1118,7 @@ class PeakDetect:
                 else:
                     group_end = len(treatment.prob_aligns)
                 group_range = range(group_start, group_end)
-                if prior_prob_map:
+                if prior_prob_map: # posterior = map prob * enrichment
                     enrich_vals = [0.] * group_end
                     enrich_total = 0.
                     for j in group_range:
@@ -1127,7 +1127,7 @@ class PeakDetect:
                     for j in group_range:
                         treatment.prob_aligns[j] = enrich_vals[j-group_start] / enrich_total
                 else:
-                    enrich_total = [treatment.enrich_scores[j] for j in group_range]
+                    enrich_total = sum([treatment.enrich_scores[j] for j in group_range])
                     for j in group_range:
                         treatment.prob_aligns[j] = treatment.enrich_scores[j] / enrich_total
             if show_graphs:

@@ -288,6 +288,8 @@ Example: %prog -t ChIP.bam -c Control.bam -f BAM -g h -n test -w --call-subpeaks
                          help="Do NOT iteratively align multi-reads by E-M. Multi-read probabilities will be based on quality scores or uniform (if --no-quals) DEFAULT : FALSE")
     optparser.add_option("--EM-converge-diff",dest="min_change",type="float",default=1e-5,
                          help="The minimum entropy change between iterations before halting E-M steps. DEFAULT : %default")
+    optparser.add_option("--EM-min-pval",dest="min_pval",type='float',default=None,
+                         help="Minimum pvalue for enrichment score. Windows below this threshold will all look the same to the aligner. DEFAULT : %default")
     optparser.add_option("--EM-min-score",dest="min_score",type='float',default=1e-2,
                          help="Minimum enrichment score. Windows below this threshold will all look the same to the aligner. DEFAULT : %default")
     optparser.add_option("--EM-max-score",dest="max_score",type='float',default=None,
