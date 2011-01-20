@@ -24,7 +24,14 @@ import struct
 from array import array
 from random import sample as random_sample
 from operator import itemgetter
+from itertools import izip as itertools_izip
 from MACS14.Constants import *
+try:
+    import numpy
+    #use_numpy = True
+    use_numpy = False
+except ImportError:
+    use_numpy = False
 # ------------------------------------
 # constants
 # ------------------------------------
@@ -249,9 +256,9 @@ class FWTrackII:
         
         """
         self.fw = fw
-        self.__locations = {}           # locations
-        self.__indexes = {}             # index into multi read arrays
-        self.__sorted = False
+        self._locations = {}           # locations
+        self._indexes = {}             # index into multi read arrays
+        self._sorted = False
         self.total = 0                  # total tags
         self.annotation = anno   # need to be figured out
         self.prob_aligns = array(FBYTE4, [1])
@@ -259,6 +266,8 @@ class FWTrackII:
         self.enrich_scores = array(FBYTE4, [1])
         self.group_starts = array(BYTE4, [])
         self.total_multi = 0
+        self._togetherplus = None
+        self._togetherminus = None
 
     def add_loc (self, chromosome, fiveendpos, strand, index):
         """Add a location to the list according to the sequence name.
@@ -267,19 +276,26 @@ class FWTrackII:
         fiveendpos -- 5' end pos, left for plus strand, neg for neg strand
         strand     -- 0: plus, 1: minus
         """
-        if not self.__locations.has_key(chromosome):
-            self.__locations[chromosome] = [array(BYTE4,[]),array(BYTE4,[])] # for (+strand, -strand)
-            self.__indexes[chromosome] = [array(BYTE4,[]),array(BYTE4,[])] # for (+strand, -strand)
-            #self.__locations[chromosome] = [[],[]] # for (+strand, -strand)
-        self.__locations[chromosome][strand].append(fiveendpos)
-        self.__indexes[chromosome][strand].append(index)
-
+        if not self._locations.has_key(chromosome):
+            self._locations[chromosome] = [array(BYTE4,[]),array(BYTE4,[])] # for (+strand, -strand)
+            self._indexes[chromosome] = [array(BYTE4,[]),array(BYTE4,[])] # for (+strand, -strand)
+            #self._locations[chromosome] = [[],[]] # for (+strand, -strand)
+        self._locations[chromosome][strand].append(fiveendpos)
+        self._indexes[chromosome][strand].append(index)
+    
+    def reset_align_probs (self):
+        """Reset alignment probabilities to their original state.
+        
+        """
+        del self.prob_aligns
+        self.prob_aligns = self.prior_aligns[:]
+    
     def get_locations_by_chr (self, chromosome):
         """Return a tuple of two lists of locations for certain chromosome.
 
         """
-        if self.__locations.has_key(chromosome):
-            return self.__locations[chromosome]
+        if self._locations.has_key(chromosome):
+            return self._locations[chromosome]
         else:
             raise Exception("No such chromosome name (%s) in TrackI object!\n" % (chromosome))
 
@@ -287,8 +303,8 @@ class FWTrackII:
         """Return a tuple of two lists of indexes for a certain chromosome.
 
         """
-        if self.__indexes.has_key(chromosome):
-            return self.__indexes[chromosome]
+        if self._indexes.has_key(chromosome):
+            return self._indexes[chromosome]
         else:
             raise Exception("No such chromosome name (%s) in TrackI object!\n" % (chromosome))
     
@@ -296,16 +312,16 @@ class FWTrackII:
         """Return a tuple of (location, index), parsed from the normal large array
         
         """
-        if self.__locations.has_key(chromosome):
-            return (zip(self.__locations[chromosome][0],self.__indexes[chromosome][0]),
-                    zip(self.__locations[chromosome][1],self.__indexes[chromosome][1]))
+        if self._locations.has_key(chromosome):
+            return (zip(self._locations[chromosome][0],self._indexes[chromosome][0]),
+                    zip(self._locations[chromosome][1],self._indexes[chromosome][1]))
         else:
             raise Exception("No such chromosome name (%s) in TrackI object!\n" % (chromosome))
 
     def get_chr_names (self):
         """Return all the chromosome names stored in this track object.
         """
-        l = self.__locations.keys()
+        l = self._locations.keys()
         l.sort()
         return l
 
@@ -318,33 +334,79 @@ class FWTrackII:
         """Naive sorting for locations.
         
         """
-        for k in self.__locations.keys():
+        for k in self._locations.keys():
             self.sort_chrom(k)
-            self.__sorted = True
+        self._sorted = True
+    
+    def argsort(self, seq):
+        """return the positions in seq that would give a sorted list
+        """
+        return sorted(range(len(seq)), key=seq.__getitem__)
 
     def sort_chrom(self, k):
-        g0 = itemgetter(0)
-        g1 = itemgetter(1)
-        (tmparrayplus,tmparrayminus) = self.get_locations_indexes_by_chr(k)
-        sortedtmparrayplus = sorted(tmparrayplus,key=g0)
-        self.__locations[k][0] = [g0(x) for x in sortedtmparrayplus]
-        self.__indexes[k][0] = [g1(x) for x in sortedtmparrayplus]
-        sortedtmparrayminus = sorted(tmparrayminus,key=g0)
-        self.__locations[k][1] = [g0(x) for x in sortedtmparrayminus]
-        self.__indexes[k][1] = [g1(x) for x in sortedtmparrayminus]
+        """Sort the start locations for the chromosome, keeping the indexes together
+        """
+        if not use_numpy:
+            # argsort
+            #locs = self._locations[k][0]
+            #indexes = self._indexes[k][0]
+            #sort_order = self.argsort(locs)
+            #self._locations[k][0] = array('i', (locs[i] for i in sort_order))
+            #self._indexes[k][0] = array('i', (indexes[i] for i in sort_order))
+            #
+            #locs = self._locations[k][1]
+            #indexes = self._indexes[k][1]
+            #sort_order = self.argsort(locs)
+            #self._locations[k][1] = array('i', (locs[i] for i in sort_order))
+            #self._indexes[k][1] = array('i', (indexes[i] for i in sort_order))
+            
+            # zip, sort, unzip
+            # zip location, index; then sort the tuple by location, then unzip back into place
+            g0 = itemgetter(0)
+            (tmparrayplus,tmparrayminus) = self.get_locations_indexes_by_chr(k)
+            tmparrayplus.sort(key=g0)
+            self._locations[k][0], self._indexes[k][0] = map(list, zip(*tmparrayplus))
+            tmparrayminus.sort(key=g0)
+            self._locations[k][1], self._indexes[k][1] = map(list, zip(*tmparrayminus))
+        else:
+            if type(self._locations[k][0]) is numpy.ndarray:  # not replaced with array.array
+                # "together" already built for this data
+                self._togetherplus[k] = self._togetherplus[k][:,self._togetherplus[k][0,:].argsort()]
+                self._locations[k][0], self._indexes[k][0] = self._togetherplus[k]
+                self._togetherminus[k] = self._togetherminus[k][:,self._togetherminus[k][0,:].argsort()]
+                self._locations[k][1], self._indexes[k][1] = self._togetherminus[k]
+            else:
+                # make an array with the two together. future sorts won't need to recreate
+                self._togetherplus[k] = numpy.append(numpy.fromstring(
+                                            self._locations[k][0].tostring(),
+                                            dtype=numpy.int32),
+                                        numpy.fromstring(
+                                            self._indexes[k][0].tostring(),
+                                            dtype=numpy.int32))
+                self._togetherplus[k] = self._togetherplus[k][:,self._togetherplus[k][0,:].argsort()]
+                self._locations[k][0], self._indexes[k][0] = self._togetherplus[k]
+                
+                self._togetherminus[k] = numpy.append(numpy.fromstring(
+                                            self._locations[k][1].tostring(),
+                                            dtype=numpy.int32),
+                                        numpy.fromstring(
+                                            self._indexes[k][1].tostring(),
+                                            dtype=numpy.int32))
+                self._togetherminus[k] = self._togetherminus[k][:,self._togetherminus[k][0,:].argsort()]
+                self._locations[k][1], self._indexes[k][1] = self._togetherminus[k]
 
     def filter_dup (self,maxnum):
         """Filter the duplicated reads.
 
         Run it right after you add all data into this object.
         """
-        if not self.__sorted:
+        if not self._sorted:
             self.sort()
         self.total = 0
-        for k in self.__locations.keys(): # for each chromosome
+        for k in self._locations.keys(): # for each chromosome
             # + strand
-            plus = self.__locations[k][0]
-            plus_ind = self.__indexes[k][0]
+            plus = self._locations[k][0]
+            plus_ind = self._indexes[k][0]
             total_unique = 0
             if len(plus) < 1:
                 new_plus = array(BYTE4,[])
@@ -374,8 +436,8 @@ class FWTrackII:
                 self.total +=  total_unique
 
             # - strand
-            minus = self.__locations[k][1]
-            minus_ind = self.__indexes[k][1]
+            minus = self._locations[k][1]
+            minus_ind = self._indexes[k][1]
             total_unique = 0
             if len(minus) < 1:
                 new_minus = array(BYTE4,[])
@@ -387,7 +449,7 @@ class FWTrackII:
                 mind_append = new_minus_ind.append
                 n = 1                # the number of tags in the current location
                 current_loc = minus[0]
-                for ind, m in zip(minus_ind[1:], minus[1:]):
+                for ind, m in itertools_izip(minus_ind[1:], minus[1:]):
                     if m == current_loc:
                         n += 1
                         if n <= maxnum:
@@ -403,18 +465,18 @@ class FWTrackII:
                             total_unique += 1
                         n = 1
                 self.total +=  total_unique
-            self.__locations[k]=[new_plus,new_minus]
-            self.__indexes[k] = [new_plus_ind, new_minus_ind]
+            self._locations[k]=[new_plus,new_minus]
+            self._indexes[k] = [new_plus_ind, new_minus_ind]
 
     def merge_plus_minus_locations_naive (self):
         """Merge plus and minus strand locations
         
         """
-        for chrom in self.__locations.keys():
-            self.__locations[chrom][0].extend(self.__locations[chrom][1])
-            self.__indexes[chrom][0].extend(self.__indexes[chrom][1])
-            self.__locations[chrom][1] = []
-            self.__indexes[chrom][1] = []
+        for chrom in self._locations.keys():
+            self._locations[chrom][0].extend(self._locations[chrom][1])
+            self._indexes[chrom][0].extend(self._indexes[chrom][1])
+            self._locations[chrom][1] = []
+            self._indexes[chrom][1] = []
             self.sort_chrom(chrom)
 
     def sample (self, percent):
@@ -423,29 +485,29 @@ class FWTrackII:
         Warning: the current object is changed!
         """
         self.total = 0
-        for key in self.__locations.keys():
-            plus = self.__locations[key][0]
-            plus_ind = self.__indexes[key][0]
+        for key in self._locations.keys():
+            plus = self._locations[key][0]
+            plus_ind = self._indexes[key][0]
             total_plus = len(plus)
             num = int(total_plus*percent)
             ind_tokeep = sorted(random_sample(xrange(total_plus), num))
-            self.__locations[key][0] = array(BYTE4, (plus[i] for i in ind_tokeep))
+            self._locations[key][0] = array(BYTE4, (plus[i] for i in ind_tokeep))
             total_unique = 0
-            self.__indexes[key][0] = array(BYTE4, [])
-            pappend = self.__indexes[key][0].append
+            self._indexes[key][0] = array(BYTE4, [])
+            pappend = self._indexes[key][0].append
             for i in ind_tokeep:
                 pappend(plus_ind[i])
                 if plus_ind[i] == 0:
                     total_unique += 1
             
-            minus = self.__locations[key][1]
-            minus_ind = self.__indexes[key][1]
+            minus = self._locations[key][1]
+            minus_ind = self._indexes[key][1]
             total_minus = len(minus)
             num = int(total_minus*percent)
             ind_tokeep = sorted(random_sample(xrange(total_minus), num))
-            self.__locations[key][1] = array(BYTE4, (minus[i] for i in ind_tokeep))
-            self.__indexes[key][1] = array(BYTE4, [])
-            mappend = self.__indexes[key][1].append
+            self._locations[key][1] = array(BYTE4, (minus[i] for i in ind_tokeep))
+            self._indexes[key][1] = array(BYTE4, [])
+            mappend = self._indexes[key][1].append
             for i in ind_tokeep:
                 mappend(minus_ind[i])
                 if minus_ind[i] == 0:
@@ -454,23 +516,23 @@ class FWTrackII:
             self.total += total_unique
             
     def __str__ (self):
-        return self.__to_wiggle()
+        return self._to_wiggle()
         
-    def __to_wiggle (self):
+    def _to_wiggle (self):
         """Use a lot of memory!  
         
         # Jake- I don't think this works for redundant tags
         
         """
         t = "track type=wiggle_0 name=\"tag list\" description=\"%s\"\n" % (self.annotation)
-        for k in self.__locations.keys():
-            if self.__locations[k][0]:
+        for k in self._locations.keys():
+            if self._locations[k][0]:
                 t += "variableStep chrom=%s span=%d strand=0\n" % (k,self.fw)
-                for i in self.__locations[k][0]:
+                for i in self._locations[k][0]:
                     t += "%d\t1\n" % i
-            if self.__locations[k][1]:
+            if self._locations[k][1]:
                 t += "variableStep chrom=%s span=%d strand=1\n" % (k,self.fw)
-                for i in self.__locations[k][1]:
+                for i in self._locations[k][1]:
                     t += "%d\t1\n" % i
         return t
 
@@ -492,9 +554,9 @@ class FWTrackI:
         """fw is the fixed-width for all locations
         """
         self.fw = fw
-        self.__locations = {}           # locations
-        self.__counts = {}              # number of tags at the same location
-        self.__well_merged = False
+        self._locations = {}           # locations
+        self._counts = {}              # number of tags at the same location
+        self._well_merged = False
         self.total = 0					# total tags
         self.total_unique = 0		# total unique tags
         self.annotation = anno   # need to be figured out
@@ -506,19 +568,19 @@ class FWTrackI:
         fiveendpos -- 5' end pos, left for plus strand, neg for neg strand
         strand     -- 0: plus, 1: minus
         """
-        if not self.__locations.has_key(chromosome):
-            self.__locations[chromosome] = [array(BYTE4,[]),array(BYTE4,[])] # for (+strand, -strand)
-            self.__counts[chromosome] = [array(UBYTE2,[]),array(UBYTE2,[])] # for (+,-)
-        self.__locations[chromosome][strand].append(fiveendpos)
-        self.__counts[chromosome][strand].append(1)
+        if not self._locations.has_key(chromosome):
+            self._locations[chromosome] = [array(BYTE4,[]),array(BYTE4,[])] # for (+strand, -strand)
+            self._counts[chromosome] = [array(UBYTE2,[]),array(UBYTE2,[])] # for (+,-)
+        self._locations[chromosome][strand].append(fiveendpos)
+        self._counts[chromosome][strand].append(1)
         self.total+=1
 
     def get_locations_by_chr (self, chromosome):
         """Return a tuple of two lists of locations for certain chromosome.
 
         """
-        if self.__locations.has_key(chromosome):
-            return self.__locations[chromosome]
+        if self._locations.has_key(chromosome):
+            return self._locations[chromosome]
         else:
             raise Exception("No such chromosome name (%s) in TrackI object!\n" % (chromosome))
 
@@ -526,8 +588,8 @@ class FWTrackI:
         """Return a tuple of two lists of counts for certain chromosome.
 
         """
-        if self.__counts.has_key(chromosome):
-            return self.__counts[chromosome]
+        if self._counts.has_key(chromosome):
+            return self._counts[chromosome]
         else:
             raise Exception("No such chromosome name (%s) in TrackI object!\n" % (chromosome))
 
@@ -535,16 +597,16 @@ class FWTrackI:
         """Return a tuple of two lists of (loc,count) for certain chromosome.
 
         """
-        if self.__counts.has_key(chromosome):
-            return (zip(self.__locations[chromosome][0],self.__counts[chromosome][0]),
-                    zip(self.__locations[chromosome][1],self.__counts[chromosome][1]))
+        if self._counts.has_key(chromosome):
+            return (zip(self._locations[chromosome][0],self._counts[chromosome][0]),
+                    zip(self._locations[chromosome][1],self._counts[chromosome][1]))
         else:
             raise Exception("No such chromosome name (%s) in TrackI object!\n" % (chromosome))
 
     def get_chr_names (self):
         """Return all the chromosome names stored in this track object.
         """
-        l = self.__locations.keys()
+        l = self._locations.keys()
         l.sort()
         return l
 
@@ -557,19 +619,16 @@ class FWTrackI:
         """Naive sorting for locations.
         
         """
-        for k in self.__locations.keys():
+        for k in self._locations.keys():
             g0 = itemgetter(0)
-            g1 = itemgetter(1)
             (tmparrayplus,tmparrayminus) = self.get_loc_counts_by_chr(k)
-            sortedtmparrayplus = sorted(tmparrayplus,key=g0)
-            self.__locations[k][0] = [g0(x) for x in sortedtmparrayplus]
-            self.__counts[k][0] = [g1(x) for x in sortedtmparrayplus]
-            sortedtmparrayminus = sorted(tmparrayminus,key=g0)
-            self.__locations[k][1] = [g0(x) for x in sortedtmparrayminus]
-            self.__counts[k][1] = [g1(x) for x in sortedtmparrayminus]
+            tmparrayplus.sort(key=g0)
+            self._locations[k][0], self._counts[k][0] = map(list, zip(*tmparrayplus))
+            tmparrayminus.sort(key=g0)
+            self._locations[k][1], self._counts[k][1] = map(list, zip(*tmparrayminus))
 
     def merge_overlap (self):
-        """merge the SAME locations. Record the duplicate number in self.__counts{}
+        """merge the SAME locations. Record the duplicate number in self._counts{}
 
         Run it right after you add all data into this object.
         
@@ -578,9 +637,9 @@ class FWTrackI:
         """
         self.total = 0
         self.total_unique = 0
-        for k in self.__locations.keys(): # for each chromosome
+        for k in self._locations.keys(): # for each chromosome
             # + strand
-            plus = sorted(self.__locations[k][0])
+            plus = sorted(self._locations[k][0])
             if len(plus) <1:
                 logging.warning("NO records for chromosome %s, plus strand!" % (k))
                 new_plus = []
@@ -606,7 +665,7 @@ class FWTrackI:
                 self.total_unique +=  len(new_plus)
                 self.total += sum(new_plus_c)
             # - strand
-            minus = sorted(self.__locations[k][1])
+            minus = sorted(self._locations[k][1])
             if len(minus) <1:
                 logging.warning("NO records for chromosome %s, minus strand!" % (k))
                 new_minus = []
@@ -631,9 +690,9 @@ class FWTrackI:
                 self.total_unique +=  len(new_minus)
                 self.total += sum(new_minus_c)
 
-            self.__locations[k]=[new_plus,new_minus]
-            self.__counts[k]=[new_plus_c,new_minus_c]
-            self.__well_merged = True
+            self._locations[k]=[new_plus,new_minus]
+            self._counts[k]=[new_plus_c,new_minus_c]
+            self._well_merged = True
 
     def merge_plus_minus_locations_w_duplicates (self,maxnum=None):
         """Merge minus strand locations to plus strand. The duplicates
@@ -645,9 +704,9 @@ class FWTrackI:
         """
         self.total_unique = None
         self.total = 0
-        for chrom in self.__locations.keys():
-            (plus_tags,minus_tags) = self.__locations[chrom]
-            (plus_counts,minus_counts) = self.__counts[chrom]
+        for chrom in self._locations.keys():
+            (plus_tags,minus_tags) = self._locations[chrom]
+            (plus_counts,minus_counts) = self._counts[chrom]
 
             new_plus_tags = array(BYTE4,[])
             new_plus_counts = array(UBYTE2,[])
@@ -687,8 +746,8 @@ class FWTrackI:
                     new_plus_tags.append(plus_tags[ip2])
                     new_plus_counts.append(1)
                     
-            self.__locations[chrom] = [new_plus_tags,[]]
-            self.__counts[chrom] = [new_plus_counts,[]]
+            self._locations[chrom] = [new_plus_tags,[]]
+            self._counts[chrom] = [new_plus_counts,[]]
             self.total += len(new_plus_tags)
 
     def sample (self, percent):
@@ -700,30 +759,30 @@ class FWTrackI:
         """
         self.total = 0
         self.total_unique = None
-        for key in self.__locations.keys():
-            num = int(len(self.__locations[key][0])*percent)
-            self.__locations[key][0]=array(BYTE4,sorted(random_sample(self.__locations[key][0],num)))
-            num = int(len(self.__locations[key][1])*percent)
-            self.__locations[key][1]=array(BYTE4,sorted(random_sample(self.__locations[key][1],num)))
-            self.total += len(self.__locations[key][0]) + len(self.__locations[key][1])
-            self.__counts[key] = [[],[]]
+        for key in self._locations.keys():
+            num = int(len(self._locations[key][0])*percent)
+            self._locations[key][0]=array(BYTE4,sorted(random_sample(self._locations[key][0],num)))
+            num = int(len(self._locations[key][1])*percent)
+            self._locations[key][1]=array(BYTE4,sorted(random_sample(self._locations[key][1],num)))
+            self.total += len(self._locations[key][0]) + len(self._locations[key][1])
+            self._counts[key] = [[],[]]
             
     def __str__ (self):
-        return self.__to_wiggle()
+        return self._to_wiggle()
         
-    def __to_wiggle (self):
+    def _to_wiggle (self):
         """Use a lot of memory!
         
         """
         t = "track type=wiggle_0 name=\"tag list\" description=\"%s\"\n" % (self.annotation)
-        for k in self.__locations.keys():
+        for k in self._locations.keys():
             (tmparrayplus,tmparrayminus) = self.get_loc_counts_by_chr(k)
 
-            if self.__locations[k][0]:
+            if self._locations[k][0]:
                 t += "variableStep chrom=%s span=%d strand=0\n" % (k,self.fw)
                 for (i,j) in tmparrayplus:
                     t += "%d\t%d\n" % (i,j)
-            if self.__locations[k][1]:
+            if self._locations[k][1]:
                 t += "variableStep chrom=%s span=%d strand=1\n" % (k,self.fw)
                 for (i,j) in tmparrayminus:
                     t += "%d\t%d\n" % (i,j)
@@ -737,16 +796,16 @@ class WigTrackI:
     
     """
     def __init__ (self):
-        self.__data = {}
+        self._data = {}
         self.span=0
         self.maxvalue =-10000
         self.minvalue = 10000
 
     def add_loc (self,chromosome,pos,value):
-        if not self.__data.has_key(chromosome):
-            self.__data[chromosome] = [array(BYTE4,[]),array(FBYTE4,[])] # for (pos,value)
-        self.__data[chromosome][0].append(pos)
-        self.__data[chromosome][1].append(value)
+        if not self._data.has_key(chromosome):
+            self._data[chromosome] = [array(BYTE4,[]),array(FBYTE4,[])] # for (pos,value)
+        self._data[chromosome][0].append(pos)
+        self._data[chromosome][1].append(value)
         if value > self.maxvalue:
             self.maxvalue = value
         if value < self.minvalue:
@@ -758,8 +817,8 @@ class WigTrackI:
 
         Note: counts are massed up, so they will be set to 1 automatically.
         """
-        for k in self.__data.keys():
-            self.__data[k] = sorted(self.__data[k])
+        for k in self._data.keys():
+            self._data[k] = sorted(self._data[k])
             
 
     def get_data_by_chr (self, chromosome):
@@ -768,8 +827,8 @@ class WigTrackI:
         The return value is a tuple:
         ([pos],[value])
         """
-        if self.__data.has_key(chromosome):
-            return self.__data[chromosome]
+        if self._data.has_key(chromosome):
+            return self._data[chromosome]
         else:
             return None
             #raise Exception("No such chromosome name (%s) in TrackI object!\n" % (chromosome))
@@ -778,7 +837,7 @@ class WigTrackI:
         """Return all the chromosome names stored.
         
         """
-        l = set(self.__data.keys())
+        l = set(self._data.keys())
         return l
 
     def write_wig (self, fhd, name, shift=0):
@@ -790,7 +849,7 @@ class WigTrackI:
         fhd.write("track type=wiggle_0 name=\"%s\"\n" % (name))
         for chrom in chrs:
             fhd.write("variableStep chrom=%s span=%d\n" % (chrom,self.span))
-            (p,s) = self.__data[chrom]
+            (p,s) = self._data[chrom]
             pnext = iter(p).next
             snext = iter(s).next            
             for i in xrange(len(p)):
@@ -804,12 +863,12 @@ class WigTrackI:
         """
         ret = WigTrackI()
         ret.span = self.span
-        chrs = set(self.__data.keys())
+        chrs = set(self._data.keys())
         for chrom in chrs:
-            (p,s) = self.__data[chrom]
+            (p,s) = self._data[chrom]
 
-            ret.__data[chrom] = [array(BYTE4,[]),array(FBYTE4,[])]
-            (np,ns) = ret.__data[chrom]
+            ret._data[chrom] = [array(BYTE4,[]),array(FBYTE4,[])]
+            (np,ns) = ret._data[chrom]
             npa = np.append
             nsa = ns.append
 
@@ -829,12 +888,12 @@ class WigTrackI:
         """
         ret = WigTrackI()
         ret.span = self.span
-        chrs = set(self.__data.keys())
+        chrs = set(self._data.keys())
         for chrom in chrs:
-            (p,s) = self.__data[chrom]
+            (p,s) = self._data[chrom]
 
-            ret.__data[chrom] = [array(BYTE4,[]),array(FBYTE4,[])]
-            (np,ns) = ret.__data[chrom]
+            ret._data[chrom] = [array(BYTE4,[]),array(FBYTE4,[])]
+            (np,ns) = ret._data[chrom]
             npa = np.append
             nsa = ns.append
 
@@ -854,9 +913,9 @@ class WigTrackI:
         shift will be used to shift the coordinates. default: 0
         """
         assert isinstance(fhd,file)
-        chrs = set(self.__data.keys())
+        chrs = set(self._data.keys())
         for chrom in chrs:
-            (p,s) = self.__data[chrom]
+            (p,s) = self._data[chrom]
             for i in xrange(len(p)):
                 pi = p[i]
                 si = s[i]
@@ -877,13 +936,13 @@ class WigTrackI:
         """Remove redundant position, keep the highest score.
         
         """
-        chrs = set(self.__data.keys())
+        chrs = set(self._data.keys())
         ndata = {}
         for chrom in chrs:
             ndata[chrom] = [array(BYTE4,[]),array(FBYTE4,[])] # for (pos,value)
             nd_p_append = ndata[chrom][0].append
             nd_s_append = ndata[chrom][1].append
-            (p,s) = self.__data[chrom]
+            (p,s) = self._data[chrom]
             prev_p = None
             prev_s = None
             for i in xrange(len(p)):
@@ -901,8 +960,8 @@ class WigTrackI:
                        nd_s_append (prev_s)
             nd_p_append (prev_p)
             nd_s_append (prev_s)
-        del self.__data
-        self.__data = ndata
+        del self._data
+        self._data = ndata
 
     def find_peaks (self, bw=None):
         """A naive peak finding algorithm to find all local maximum
@@ -922,9 +981,9 @@ class WigTrackI:
         bw = max(1,bw)
         ret = WigTrackI()
         ret.span = 1
-        chrs = set(self.__data.keys())
+        chrs = set(self._data.keys())
         for chrom in chrs:
-            (p,s) = self.__data[chrom]
+            (p,s) = self._data[chrom]
             prev_peak_p = -10000
             prev_peak_s = -10000
             prev_peak_summits = []
@@ -985,9 +1044,9 @@ class WigTrackI:
         bw = max(1,bw)
         ret = WigTrackI()
         ret.span = 1
-        chrs = set(self.__data.keys())
+        chrs = set(self._data.keys())
         for chrom in chrs:
-            (p,s) = self.__data[chrom]
+            (p,s) = self._data[chrom]
             prev_peak_p = -10000
             prev_peak_s = -10000
             prev_peak_summits = []
@@ -1032,9 +1091,9 @@ class WigTrackI:
 
     def total (self):
         t = 0
-        chrs = set(self.__data.keys())
+        chrs = set(self._data.keys())
         for chrom in chrs:
-            (p,s) = self.__data[chrom]
+            (p,s) = self._data[chrom]
             t += len(p)
         return t
 
@@ -1082,7 +1141,7 @@ class BinKeeperI:
         """
         return self.cage[p/self.binsize]
 
-    def __pp2cages (self, p1, p2):
+    def _pp2cages (self, p1, p2):
         assert p1<=p2
         bin1 = self.p2bin(p1)
         bin2 = self.p2bin(p2)+1
@@ -1101,7 +1160,7 @@ class BinKeeperI:
         Return Value:
         list of positions between p1 and p2.
         """
-        (ps,vs) = self.__pp2cages(p1,p2)
+        (ps,vs) = self._pp2cages(p1,p2)
         p1_in_cages = bisect_left(ps,p1)
         p2_in_cages = bisect_right(ps,p2)
         return ps[p1_in_cages:p2_in_cages]
@@ -1115,7 +1174,7 @@ class BinKeeperI:
         Return Value:
         list of values whose positions are between p1 and p2.
         """
-        (ps,vs) = self.__pp2cages(p1,p2)
+        (ps,vs) = self._pp2cages(p1,p2)
         p1_in_cages = bisect_left(ps,p1)
         p2_in_cages = bisect_right(ps,p2)
         return vs[p1_in_cages:p2_in_cages]
@@ -1130,7 +1189,7 @@ class BinKeeperI:
         Return Value:
         list of (position,value) between p1 and p2.
         """
-        (ps,vs) = self.__pp2cages(p1,p2)
+        (ps,vs) = self._pp2cages(p1,p2)
         p1_in_cages = bisect_left(ps,p1)
         p2_in_cages = bisect_right(ps,p2)
         return zip(ps[p1_in_cages:p2_in_cages],vs[p1_in_cages:p2_in_cages])

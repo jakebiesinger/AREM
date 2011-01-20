@@ -288,14 +288,10 @@ Example: %prog -t ChIP.bam -c Control.bam -f BAM -g h -n test -w --call-subpeaks
                          help="Do NOT iteratively align multi-reads by E-M. Multi-read probabilities will be based on quality scores or uniform (if --no-quals) DEFAULT : FALSE")
     optparser.add_option("--EM-converge-diff",dest="min_change",type="float",default=1e-5,
                          help="The minimum entropy change between iterations before halting E-M steps. DEFAULT : %default")
-    optparser.add_option("--EM-min-pval",dest="min_pval",type='float',default=None,
-                         help="Minimum pvalue for enrichment score. Windows below this threshold will all look the same to the aligner. DEFAULT : %default")
-    optparser.add_option("--EM-min-score",dest="min_score",type='float',default=1e-2,
+    optparser.add_option("--EM-min-score",dest="min_score",type='float',default=1.5,
                          help="Minimum enrichment score. Windows below this threshold will all look the same to the aligner. DEFAULT : %default")
     optparser.add_option("--EM-max-score",dest="max_score",type='float',default=None,
-                         help="Maximum enrichment score. Windows above this threshold will all look the same to the aligner, DEFAULT : No Maximum")
-    optparser.add_option("--EM-log-base",dest="enrich_log_base",type='float',default=math_e,
-                         help="The log base used to convert poisson p-values to enrichment scores. Generally, higher values will converge faster, may get caught in local minima, and may drown out enrichment signals by making mediocre-enriched windows look similar to highly-enriched windows. DEFAULT : %default")
+                         help="Maximum enrichment score. Windows above this threshold will all look the same to the aligner, DEFAULT : No Maximum")    
     optparser.add_option("--EM-show-graphs",dest="show_graphs",action='store_true',
                          help="generate diagnostic graphs for E-M. (requires MATPLOTLIB). DEFAULT : FALSE")
     optparser.add_option("--quality-scale",dest="qual_scale",choices=allowed_qual_scales, default='auto',

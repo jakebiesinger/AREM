@@ -202,13 +202,13 @@ def poisson_cdf (n, lam, lower=True):
     #lam = int((lam + .0005) * 1000) / 1000.   # speedup-- round lambda to thousands place
     floor_n = floor(n)
     ceil_n = floor_n + 1
-    floor_cdf = __poisson_cdf(floor_n, lam, lower)
-    ceil_cdf = __poisson_cdf(ceil_n, lam, lower)
+    floor_cdf = _poisson_cdf(floor_n, lam, lower)
+    ceil_cdf = _poisson_cdf(ceil_n, lam, lower)
     mid_cdf = floor_cdf + (n - floor_n) * (ceil_cdf - floor_cdf)
     return mid_cdf
 
 @memoize
-def __poisson_cdf (n, lam, lower):
+def _poisson_cdf (n, lam, lower):
     """Poisson CDF evaluater.
 
     This is a more stable CDF function. It can tolerate large lambda
@@ -226,16 +226,16 @@ def __poisson_cdf (n, lam, lower):
 
     if lower:
         if lam > 700:
-            return __poisson_cdf_large_lambda(k, lam)
+            return _poisson_cdf_large_lambda(k, lam)
         else:
-            return __poisson_cdf_small_lambda(k,lam)
+            return _poisson_cdf_small_lambda(k,lam)
     else:
         if lam > 700:
-            return __poisson_cdf_Q_large_lambda(k, lam)
+            return _poisson_cdf_Q_large_lambda(k, lam)
         else:
-            return __poisson_cdf_Q_small_lambda(k,lam)
+            return _poisson_cdf_Q_small_lambda(k,lam)
 
-def __poisson_cdf_small_lambda (k,a):
+def _poisson_cdf_small_lambda (k,a):
     """Poisson CDF For small lambda. If a > 745, this will return
     incorrect result.
 
@@ -253,7 +253,7 @@ def __poisson_cdf_small_lambda (k,a):
     else:
         return cdf
     
-def __poisson_cdf_large_lambda ( k,a ):
+def _poisson_cdf_large_lambda ( k,a ):
     """Slower poisson cdf for large lambda.
     
     """
@@ -283,7 +283,7 @@ def __poisson_cdf_large_lambda ( k,a ):
     cdf *= lastexp
     return cdf
 
-def __poisson_cdf_Q_small_lambda (k,a):
+def _poisson_cdf_Q_small_lambda (k,a):
     """internal Poisson CDF evaluater for upper tail with small
     lambda.
 
@@ -305,7 +305,7 @@ def __poisson_cdf_Q_small_lambda (k,a):
         i+=1
     return cdf
 
-def __poisson_cdf_Q_large_lambda (k,a):
+def _poisson_cdf_Q_large_lambda (k,a):
     """Slower internal Poisson CDF evaluater for upper tail with large
     lambda.
     

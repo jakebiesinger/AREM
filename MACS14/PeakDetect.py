@@ -14,7 +14,7 @@ with the distribution).
 @contact: taoliu@jimmy.harvard.edu
 """
 import os
-from math import log as mathlog
+from math import log10 as math_log10
 from array import array
 from itertools import count as itertools_count, izip as itertools_izip
 
@@ -87,9 +87,9 @@ class PeakDetect:
         self.final_peaks and self.final_negative_peaks.
         """
         if self.control:                # w/ control
-            self.peaks = self.__call_peaks_w_control ()
+            self.peaks = self._call_peaks_w_control ()
         else:                           # w/o control
-            self.peaks = self.__call_peaks_wo_control ()
+            self.peaks = self._call_peaks_wo_control ()
         return None
 
     def diag_result (self):
@@ -99,9 +99,9 @@ class PeakDetect:
         if not self.diag:
             return None
         if self.control:                # w/ control
-            return self.__diag_w_control()
+            return self._diag_w_control()
         else:                           # w/o control
-            return self.__diag_wo_control()
+            return self._diag_wo_control()
 
     def toxls (self):
         """Save the peak results in a tab-delimited plain text file
@@ -170,7 +170,7 @@ class PeakDetect:
                 text+= "%s\t%d\t%d\tMACS_peak_%d\t%.2f\n" % (chrom,peak[3]-1,peak[3],n,peak[4])
         return text
 
-    def __add_fdr (self, final, negative): 
+    def _add_fdr (self, final, negative): 
         """
         A peak info type is a: dictionary
 
@@ -222,7 +222,7 @@ class PeakDetect:
                 new_info[chrom].append(tuple(tmp))      # i[6] is pvalue in peak info
         return new_info
 
-    def __call_peaks_w_control (self):
+    def _call_peaks_w_control (self):
         """To call peaks with control data.
 
         A peak info type is a: dictionary
@@ -242,7 +242,7 @@ class PeakDetect:
         if self.ratio_treat2control > 2 or self.ratio_treat2control < 0.5:
             self.warn("Treatment tags and Control tags are uneven! FDR may be wrong!")
         self.info("#3 shift treatment data")
-        self.__shift_trackI(self.treat)
+        self._shift_trackI(self.treat)
         self.info("#3 merge +/- strand of treatment data")
 
         self.treat.merge_plus_minus_locations_naive ()
@@ -252,19 +252,17 @@ class PeakDetect:
             self.info("#3 save the shifted and merged tag counts into wiggle file...")
             #build wigtrack
             #if self.save_wig:
-            #    treatwig = self.__build_wigtrackI(self.treat,space=self.opt.space)
+            #    treatwig = self._build_wigtrackI(self.treat,space=self.opt.space)
             if self.opt.wigextend:
                 zwig_write(self.treat,self.opt.wig_dir_tr,self.zwig_tr,self.opt.wigextend,log=self.info,space=self.opt.space,single=self.opt.singlewig)
             else:
                 zwig_write(self.treat,self.opt.wig_dir_tr,self.zwig_tr,self.d,log=self.info,space=self.opt.space,single=self.opt.singlewig)
-        self.info("#3 call peak candidates")
-        peak_candidates = self.__call_peaks_from_trackI (self.treat)
+        self.info("#3 call treatment peak candidates")
+        peak_candidates = self._call_peaks_from_trackI (self.treat)
         
-        # Jake - Seems off to me that we call treatment candidate peaks before
-        # shifting the control data- I get high c_peak_lambdas if we shift control first
         self.info("#3 shift control data")
         self.info("#3 merge +/- strand of control data")
-        self.__shift_trackI(self.control)
+        self._shift_trackI(self.control)
         self.control.merge_plus_minus_locations_naive ()
 
         self.debug("#3 after shift and merging, tags: %d" % (self.control.total))
@@ -272,26 +270,36 @@ class PeakDetect:
             self.info("#3 save the shifted and merged tag counts into wiggle file...")
             #build wigtrack
             #if self.save_score:
-            #    controlbkI = self.__build_binKeeperI(self.control,space=self.opt.space)
+            #    controlbkI = self._build_binKeeperI(self.control,space=self.opt.space)
             if self.opt.wigextend:
                 zwig_write(self.control,self.opt.wig_dir_ctl,self.zwig_ctl,self.opt.wigextend,log=self.info,space=self.opt.space,single=self.opt.singlewig)
             else:
                 zwig_write(self.control,self.opt.wig_dir_ctl,self.zwig_ctl,self.d,log=self.info,space=self.opt.space,single=self.opt.singlewig)
+
         self.info("#3 call negative peak candidates")
-        negative_peak_candidates = self.__call_peaks_from_trackI (self.control)
+        negative_peak_candidates = self._call_peaks_from_trackI (self.control)
         
         if self.treat.total_multi > 0 and not self.opt.no_EM:
             self.info("#3.5 Perform EM on treatment multi reads")
-            self.__align_by_EM(self.treat, self.control, peak_candidates, self.ratio_treat2control)
+            self._align_by_EM(self.treat, self.control, peak_candidates, self.ratio_treat2control)
         
         self.info("#3 use control data to filter peak candidates...")
-        self.final_peaks = self.__filter_w_control(peak_candidates,self.treat,self.control, self.ratio_treat2control,fake_when_missing=True)
+        self.final_peaks = self._filter_w_control(peak_candidates,self.treat,self.control, self.ratio_treat2control,fake_when_missing=True)
+        
         self.info("#3 find negative peaks by swapping treat and control")
+        if self.treat.total_multi > 0 and self.control.total_multi > 0 \
+                and not self.opt.no_EM:
+            self.info("#3.5 Reset treatment alignment probabilities")
+            self.treat.reset_align_probs()
+            self.info("#3. Perform EM on control multi reads")
+            self._align_by_EM(self.control, self.treat,
+                               negative_peak_candidates,
+                               float(self.control.total) / self.treat.total)
+        self.info("#3 use treat data to filter negative peak candidates...")
+        self.final_negative_peaks = self._filter_w_control(negative_peak_candidates,self.control,self.treat, 1.0/self.ratio_treat2control,fake_when_missing=True)
+        return self._add_fdr (self.final_peaks, self.final_negative_peaks)
 
-        self.final_negative_peaks = self.__filter_w_control(negative_peak_candidates,self.control,self.treat, 1.0/self.ratio_treat2control,fake_when_missing=True)
-        return self.__add_fdr (self.final_peaks, self.final_negative_peaks)
-
-    def __call_peaks_wo_control (self):
+    def _call_peaks_wo_control (self):
         """To call peaks w/o control data.
 
         """
@@ -301,7 +309,7 @@ class PeakDetect:
         self.debug("#3 min tags: %d" % (self.min_tags))
 
         self.info("#3 shift treatment data")
-        self.__shift_trackI(self.treat)
+        self._shift_trackI(self.treat)
         self.info("#3 merge +/- strand of treatment data")
         self.treat.merge_plus_minus_locations_naive ()
 
@@ -313,12 +321,12 @@ class PeakDetect:
             else:
                 zwig_write(self.treat,self.opt.wig_dir_tr,self.zwig_tr,self.d,log=self.info,space=self.opt.space,single=self.opt.singlewig)
         self.info("#3 call peak candidates")
-        peak_candidates = self.__call_peaks_from_trackI (self.treat)
+        peak_candidates = self._call_peaks_from_trackI (self.treat)
         self.info("#3 use self to calculate local lambda and  filter peak candidates...")
-        self.final_peaks = self.__filter_w_control(peak_candidates,self.treat,self.treat,1,pass_sregion=True)
+        self.final_peaks = self._filter_w_control(peak_candidates,self.treat,self.treat,1,pass_sregion=True)
         return self.final_peaks
 
-    def __print_peak_info (self, peak_info):
+    def _print_peak_info (self, peak_info):
         """Print out peak information.
 
         A peak info type is a: dictionary
@@ -336,7 +344,7 @@ class PeakDetect:
             for peak in peak_list:
                 print ( chrom+"\t"+"\t".join(map(str,peak)) )
 
-    def __filter_w_control (self, peak_info, treatment, control, treat2control_ratio, pass_sregion=False, write2wig= False, fake_when_missing=False ):
+    def _filter_w_control (self, peak_info, treatment, control, treat2control_ratio, pass_sregion=False, write2wig= False, fake_when_missing=False ):
         """Use control data to calculate several lambda values around
         1k, 5k and 10k region around peak summit. Choose the highest
         one as local lambda, then calculate p-value in poisson
@@ -502,7 +510,7 @@ class PeakDetect:
                 if p_tmp <= 0:
                     peak_pvalue = 3100
                 else:
-                    peak_pvalue = mathlog(p_tmp,10) * -10
+                    peak_pvalue = math_log10(p_tmp) * -10
                 
                 #print 'counts:', cnum_peak, cnum_sregion, cnum_lregion
                 #print 'lambdas:', clambda_peak, clambda_sregion, clambda_lregion, lambda_bg
@@ -562,10 +570,10 @@ class PeakDetect:
                             if cpr_pval <= 0:
                                 cpr_pval = 3100
                             else:
-                                cpr_pval = mathlog(cpr_pval,10) * -10
+                                cpr_pval = math_log10(cpr_pval) * -10
                             #print 'calling peak!', cpr_pval, '>', self.pvalue, ' ?'
                             if cpr_pval > self.pvalue:
-                                p_start, p_end, p_length, p_summit, p_height = self.__tags_call_peak(cpr_tags, cpr_probs)
+                                p_start, p_end, p_length, p_summit, p_height = self._tags_call_peak(cpr_tags, cpr_probs)
                                 cpr_enrich = p_height / local_lambda * window_size_4_lambda / self.d
                                 final_peak_info[chrom].append((p_start, p_end, p_length, p_summit, p_height, cpr_mass, cpr_pval, cpr_enrich))
                                 n_chrom += 1
@@ -609,10 +617,10 @@ class PeakDetect:
                         if cpr_pval <= 0:
                             cpr_pval = 3100
                         else:
-                            cpr_pval = mathlog(cpr_pval,10) * -10
+                            cpr_pval = math_log10(cpr_pval) * -10
                         #print 'calling peak!', cpr_pval, '>', self.pvalue, ' ?'
                         if cpr_pval > self.pvalue:
-                            p_start, p_end, p_length, p_summit, p_height = self.__tags_call_peak(cpr_tags, cpr_probs)
+                            p_start, p_end, p_length, p_summit, p_height = self._tags_call_peak(cpr_tags, cpr_probs)
                             cpr_enrich = p_height / local_lambda * window_size_4_lambda / self.d
                             final_peak_info[chrom].append((p_start, p_end, p_length, p_summit, p_height, cpr_mass, cpr_pval, cpr_enrich))
                             n_chrom += 1
@@ -630,7 +638,7 @@ class PeakDetect:
         self.info("#3 Finally, %d peaks are called!" % (total))
         return final_peak_info
 
-    def __call_peaks_from_trackI (self, trackI):
+    def _call_peaks_from_trackI (self, trackI):
         """Call peak candidates from trackI data. Using every tag as
         step and scan the self.scan_window region around the tag. If
         tag number is greater than self.min_tags, then the position is
@@ -668,7 +676,7 @@ class PeakDetect:
                         p+=1
                     else:
                         # candidate peak region is ready, call peak...
-                        (peak_start,peak_end,peak_length,peak_summit,peak_height) = self.__tags_call_peak (cpr_tags, cpr_probs)
+                        (peak_start,peak_end,peak_length,peak_summit,peak_height) = self._tags_call_peak (cpr_tags, cpr_probs)
                         peak_prob = sum(cpr_probs)
                         #peak_candidates[chrom].append((peak_start,peak_end,peak_length,peak_summit,peak_height,number_cpr_tags, peak_prob, cpr_indices))
                         peak_candidates[chrom].append((peak_start,peak_end,peak_length,peak_summit,peak_height,peak_prob))
@@ -695,9 +703,9 @@ class PeakDetect:
                     p+=1
             self.debug("#3 peak candidates: %d" % (n_chrom))
         self.debug("#3 Total number of candidates: %d" % (total))
-        return self.__remove_overlapping_peaks(peak_candidates)
+        return self._remove_overlapping_peaks(peak_candidates)
                 
-    def __tags_call_peak (self, tags, probs ):
+    def _tags_call_peak (self, tags, probs ):
         """Project tags to a line. Then find the highest point.
 
         """
@@ -723,7 +731,7 @@ class PeakDetect:
         peak_summit = tops[len(tops)/2]+start
         return (start,end,region_length,peak_summit,top_height)
 
-    def __shift_trackI (self, trackI):
+    def _shift_trackI (self, trackI):
         """Shift trackI data to right (for plus strand) or left (for
         minus strand).
 
@@ -741,7 +749,7 @@ class PeakDetect:
                 tags[1][i] -= self.shift_size
         return
     
-    def __build_wigtrackI (self, trackI, space=10):
+    def _build_wigtrackI (self, trackI, space=10):
         """Shift trackI then build a wigTrackI object.
         
         """
@@ -796,15 +804,15 @@ class PeakDetect:
                     wigtrack.add_loc(chrom,i+startp+1,window_counts[i])                    
         return wigtrack
 
-    def __diag_w_control (self):
+    def _diag_w_control (self):
         # sample
         sample_peaks = {}
         for i in xrange(90,10,-10):
             self.info("#3 diag: sample %d%%" % i)
-            sample_peaks[i]=self.__diag_peakfinding_w_control_sample(float(i)/(i+10))
-        return self.__overlap (self.final_peaks, sample_peaks,top=90,bottom=10,step=-10)
+            sample_peaks[i]=self._diag_peakfinding_w_control_sample(float(i)/(i+10))
+        return self._overlap (self.final_peaks, sample_peaks,top=90,bottom=10,step=-10)
 
-    def __diag_peakfinding_w_control_sample (self, percent):
+    def _diag_peakfinding_w_control_sample (self, percent):
         self.treat.sample(percent) # because sampling is after
                                    # shifting, track.total is used
                                    # now.
@@ -816,24 +824,24 @@ class PeakDetect:
 
         self.debug("#3 diag: after shift and merging, treat: %d, control: %d" % (self.treat.total,self.control.total))
         self.info("#3 diag: call peak candidates")
-        peak_candidates = self.__call_peaks_from_trackI (self.treat)
+        peak_candidates = self._call_peaks_from_trackI (self.treat)
 
         self.info("#3 diag: call negative peak candidates")
-        negative_peak_candidates = self.__call_peaks_from_trackI (self.control)
+        negative_peak_candidates = self._call_peaks_from_trackI (self.control)
         
         self.info("#3 diag: use control data to filter peak candidates...")
-        final_peaks_percent = self.__filter_w_control(peak_candidates,self.treat,self.control, ratio_treat2control)
+        final_peaks_percent = self._filter_w_control(peak_candidates,self.treat,self.control, ratio_treat2control)
         return final_peaks_percent
         
-    def __diag_wo_control (self):
+    def _diag_wo_control (self):
         # sample
         sample_peaks = {}
         for i in xrange(90,10,-10):
             self.info("#3 diag: sample %d%%" % i)
-            sample_peaks[i]=self.__diag_peakfinding_wo_control_sample(float(i)/(i+10))
-        return self.__overlap (self.final_peaks, sample_peaks,top=90,bottom=10,step=-10)
+            sample_peaks[i]=self._diag_peakfinding_wo_control_sample(float(i)/(i+10))
+        return self._overlap (self.final_peaks, sample_peaks,top=90,bottom=10,step=-10)
 
-    def __diag_peakfinding_wo_control_sample (self, percent):
+    def _diag_peakfinding_wo_control_sample (self, percent):
 
         self.lambda_bg = float(self.scan_window)*self.treat.total/self.gsize # bug fixed...
         self.min_tags = poisson_cdf_inv(1-pow(10,self.pvalue/-10),self.lambda_bg)+1
@@ -841,12 +849,12 @@ class PeakDetect:
         self.treat.sample(percent)
         self.debug("#3 diag: after shift and merging, tags: %d" % (self.treat.total))
         self.info("#3 diag: call peak candidates")
-        peak_candidates = self.__call_peaks_from_trackI (self.treat)
+        peak_candidates = self._call_peaks_from_trackI (self.treat)
         self.info("#3 diag: use self to calculate local lambda and  filter peak candidates...")
-        final_peaks_percent = self.__filter_w_control(peak_candidates,self.treat,self.treat,1,pass_sregion=True) # bug fixed...
+        final_peaks_percent = self._filter_w_control(peak_candidates,self.treat,self.treat,1,pass_sregion=True) # bug fixed...
         return final_peaks_percent
 
-    def __overlap (self, gold_peaks, sample_peaks, top=90,bottom=10,step=-10):
+    def _overlap (self, gold_peaks, sample_peaks, top=90,bottom=10,step=-10):
         """Calculate the overlap between several fe range for the
         golden peaks set and results from sampled data.
         
@@ -865,12 +873,12 @@ class PeakDetect:
             fe_up = f + self.festep
             self.debug("#3 diag: fe range = %d -- %d" % (fe_low, fe_up))
             
-            r = self.__overlap_fe(gold_peaks, sample_peaks, fe_low, fe_up, top, bottom, step)
+            r = self._overlap_fe(gold_peaks, sample_peaks, fe_low, fe_up, top, bottom, step)
             if r:
                 diag_result.append(r)
         return diag_result
 
-    def __overlap_fe (self, gold_peaks, sample_peaks, fe_low, fe_up, top, bottom, step):
+    def _overlap_fe (self, gold_peaks, sample_peaks, fe_low, fe_up, top, bottom, step):
         ret = ["%d-%d" % (fe_low,fe_up)]
         gp = PeakIO()
         gp.init_from_dict(gold_peaks)
@@ -889,7 +897,7 @@ class PeakDetect:
         return ret
 
 
-    def __remove_overlapping_peaks (self, peaks ):
+    def _remove_overlapping_peaks (self, peaks ):
         """peak_candidates[chrom] = [(peak_start,peak_end,peak_length,peak_summit,peak_height,number_cpr_tags)...]
 
         """
@@ -925,7 +933,8 @@ class PeakDetect:
         return new_peaks
 
 
-    def __align_by_EM(self, treatment, control, init_regions, treat2control_ratio):
+    def _align_by_EM(self, treatment, control, init_regions,
+                      treat2control_ratio, show_graphs=None):
         """
         Align the multi reads in treatment using expectation-maximization.
         
@@ -939,14 +948,15 @@ class PeakDetect:
         
         """
         # get indices and lambdas for candidate regions
-        all_peak_inds, all_peak_lambdas = self.__get_all_peak_lambdas(init_regions,
+        all_peak_inds, all_peak_lambdas = self._get_all_peak_lambdas(init_regions,
             treatment, control, treat2control_ratio)
         # filter out non-multiread peaks and save only counts of unique reads + multi indices
         min_score = self.opt.min_score if self.opt.min_score is not None else 1e-3
         max_score = self.opt.max_score if self.opt.max_score is not None else 2e3
         final_regions = {}
         peak_posns = {}
-        show_graphs = self.opt.show_graphs
+        if show_graphs is None:
+            show_graphs = self.opt.show_graphs  # use cmd line param unless overridden
         #if show_graphs:
         in_candidate = [] #[False] * len(treatment.prob_aligns)  # if peak is in cand region
         for chrom in all_peak_inds.keys():
@@ -983,12 +993,11 @@ class PeakDetect:
         # for each iteration
         #if False:
         if show_graphs:
-            self.__plot_EM_state(0, final_regions, peak_posns, in_candidate)
+            self._plot_EM_state(0, final_regions, peak_posns, in_candidate)
         prev_entropy = None
-        log_base = self.opt.enrich_log_base
         prior_prob_map = self.opt.prior_prob_map
         for iteration in itertools_count(1):  # until convergence
-            cur_entropy = list(self.__get_read_entropy(self.treat))
+            cur_entropy = list(self._get_read_entropy(treatment))
             if prev_entropy is not None:  # check for convergence
                 denom = sum(ent ** 2 for ent in cur_entropy)
                 if denom == 0.0:
@@ -1011,7 +1020,7 @@ class PeakDetect:
                     if pvalue <= 0:
                         score = max_score
                     else:
-                        score = max(-mathlog(pvalue, log_base), min_score)
+                        score = max(-math_log10(pvalue), min_score)
                         score = min(score, max_score)
                     for i in multi_inds:
                         treatment.enrich_scores[i] = score
@@ -1036,11 +1045,11 @@ class PeakDetect:
                     for j in group_range:
                         treatment.prob_aligns[j] = treatment.enrich_scores[j] / enrich_total
             if show_graphs:
-                self.__plot_EM_state(iteration, final_regions, peak_posns, in_candidate)
+                self._plot_EM_state(iteration, final_regions, peak_posns, in_candidate)
             prev_entropy = cur_entropy
             # rinse and repeat (until convergence)
     
-    def __plot_EM_state(self, iteration, final_regions, peak_posns, in_candidate, output_summary=False):
+    def _plot_EM_state(self, iteration, final_regions, peak_posns, in_candidate, output_summary=False):
         '''Plot the current data state. These may include:
            Entropy Histogram, CDF of enrichment scores and alignment probabilities,
            ratio of FG to BG scores or probabilities
@@ -1057,13 +1066,13 @@ class PeakDetect:
                         peak_length = peak_posns[chrom][i][1] - peak_posns[chrom][i][0]
                         line = (chrom,) + peak_posns[chrom][i] +  (peak_length, data[0], data[1], peak_mass)
                         outfile.write('\t'.join(map(str, line)) + '\n')
-        self.__plot_entropy_hist(iteration, self.treat)
-        self.__plot_enrichment_CDF(iteration, self.treat)
-        self.__plot_probability_CDF(iteration, self.treat)
-        #self.__plot_probability_mass_ratio(iteration, self.treat, self.control)
-        self.__plot_max_probability(iteration, self.treat)
+        self._plot_entropy_hist(iteration, self.treat)
+        self._plot_enrichment_CDF(iteration, self.treat)
+        self._plot_probability_CDF(iteration, self.treat)
+        #self._plot_probability_mass_ratio(iteration, self.treat, self.control)
+        self._plot_max_probability(iteration, self.treat)
 
-    def __get_read_entropy(self, treatment, normed=True, minScore=None):
+    def _get_read_entropy(self, treatment, normed=True, minScore=None):
         'generator for entropy in read alignments'
         for i in range(len(treatment.group_starts)):
             group_start = treatment.group_starts[i]
@@ -1084,15 +1093,15 @@ class PeakDetect:
                     probs = [score / scoreTotal for score in scores]
                 else:
                     probs = [1./len(group_range)] * len(group_range)
-            entropies = [p * mathlog(p) if p > 0 else 0. for p in probs]
+            entropies = [p * math_log10(p) if p > 0 else 0. for p in probs]
             if normed:
-                yield -sum(entropies) / mathlog(len(group_range))
+                yield -sum(entropies) / math_log10(len(group_range))
             else:
                 yield -sum(entropies)
 
-    def __plot_entropy_hist(self, iteration, treatment):
+    def _plot_entropy_hist(self, iteration, treatment):
         from matplotlib import pyplot
-        entropy = list(self.__get_read_entropy(treatment))
+        entropy = list(self._get_read_entropy(treatment))
         #outfile = open('entropy.%s.txt' % iteration, 'wb')
         #for value in entropy:
             #outfile.write(str(value)+'\n')
@@ -1107,7 +1116,7 @@ class PeakDetect:
         pyplot.savefig(self.opt.name + '_entropy_%s.png' % iteration)
         pyplot.close()
 
-    def __plot_enrichment_CDF(self, iteration, treatment):
+    def _plot_enrichment_CDF(self, iteration, treatment):
         from matplotlib import pyplot
         pyplot.hist(treatment.enrich_scores, bins=100, normed=True, 
                     cumulative=True, histtype='step') 
@@ -1123,7 +1132,7 @@ class PeakDetect:
         pyplot.savefig(self.opt.name + '_CDF_enrichment_%s.png' % iteration)
         pyplot.close()
     
-    def __plot_probability_CDF(self, iteration, treatment):
+    def _plot_probability_CDF(self, iteration, treatment):
         from matplotlib import pyplot
         #outfile = open('alignProbs.%s.txt' % iteration, 'wb')
         #for value in treatment.prob_aligns:
@@ -1141,7 +1150,7 @@ class PeakDetect:
         pyplot.savefig(self.opt.name + '_CDF_prob_%s.png' % iteration)
         pyplot.close()
     
-    def __plot_max_probability(self, iteration, treatment):
+    def _plot_max_probability(self, iteration, treatment):
         from matplotlib import pyplot
         max_probs = []
         for i in range(len(treatment.group_starts)):
@@ -1161,7 +1170,7 @@ class PeakDetect:
         pyplot.close()
 
 
-    def __get_all_peak_lambdas(self, peak_info, treatment, control, treat2control_ratio):
+    def _get_all_peak_lambdas(self, peak_info, treatment, control, treat2control_ratio):
         """
         from MACS: calculate the local (max) lambda for each peak.
         Also returns all tag indices within each peak

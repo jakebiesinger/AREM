@@ -14,7 +14,6 @@ with the distribution).
 @contact: taoliu@jimmy.harvard.edu
 """
 import sys, time, random
-from MACS14.Constants import get_read_start
 
 def median (nums):
     """Calculate Median.
@@ -88,7 +87,7 @@ class PeakModel:
         self.max_tags = float(self.treatment.total) * self.umfold * self.peaksize / self.gz /2 # maximum unique hits on single strand
         self.debug("#2 tags required in model: %.2f min, %.2f max" % (self.min_tags, self.max_tags))
         # use treatment data to build model
-        paired_peakpos = self.__paired_peaks ()
+        paired_peakpos = self._paired_peaks ()
         # select up to 1000 pairs of peaks to build model
         # Jake - odd that he selects the first 1000 rather than at random.
         num_paired_peakpos = 0
@@ -111,7 +110,7 @@ class PeakModel:
         elif num_paired_peakpos < self.max_pairnum:
             self.warn("Fewer paired peaks (%d) than %d! Model may not be build well! Lower your MFOLD parameter may erase this warning. Now I will use %d pairs to build model!" % (num_paired_peakpos,self.max_pairnum,num_paired_peakpos_picked))
         self.debug("Use %d pairs to build the model." % (num_paired_peakpos_picked))
-        self.__paired_peak_model(paired_peakpos)
+        self._paired_peak_model(paired_peakpos)
 
     def __str__ (self):
         """For debug...
@@ -125,7 +124,7 @@ Summary of Peak Model:
   Scan window size: %d
 """ % (self.min_tags,self.max_tags,self.d,self.scan_window)
 
-    def __paired_peak_model (self, paired_peakpos):
+    def _paired_peak_model (self, paired_peakpos):
         """Use paired peak positions and treatment tag positions to build the model.
 
         Modify self.(d, model_shift size and scan_window size. and extra, plus_line, minus_line and shifted_line for plotting).
@@ -135,14 +134,13 @@ Summary of Peak Model:
         self.minus_line = [0]*window_size
         for chrom in paired_peakpos.keys():
             paired_peakpos_chrom = paired_peakpos[chrom]
-            tags = self.treatment.get_locations_by_chr(chrom)
-            tags_plus =  tags[0]
-            tags_minus = tags[1]
+            tags_plus, tags_minus = self.treatment.get_locations_by_chr(chrom)
+            index_plus, index_minus = self.treatment.get_indexes_by_chr(chrom)
             # every paired peak has plus line and minus line
             #  add plus_line
-            self.plus_line = self.__model_add_line (paired_peakpos_chrom, tags_plus,self.plus_line)
+            self.plus_line = self._model_add_line (paired_peakpos_chrom, tags_plus, index_plus, self.plus_line)
             #  add minus_line
-            self.minus_line = self.__model_add_line (paired_peakpos_chrom, tags_minus,self.minus_line)
+            self.minus_line = self._model_add_line (paired_peakpos_chrom, tags_minus, index_minus, self.minus_line)
 
         # find top 
         plus_tops = []
@@ -172,7 +170,7 @@ Summary of Peak Model:
             self.shifted_line[i]=minus_shifted[i]+plus_shifted[i]
         return True
 
-    def __model_add_line (self, pos1, pos2, line):
+    def _model_add_line (self, pos1, pos2, index2, line):
         """Project each pos in pos2 which is included in
         [pos1-self.peaksize,pos1+self.peaksize] to the line.
 
@@ -187,9 +185,9 @@ Summary of Peak Model:
         last_p2 = -1
         flag_find_overlap = False
         while i1<i1_max and i2<i2_max:
-            p1 = get_read_start(pos1[i1])
-            p2 = get_read_start(pos2[i2])
-            if p1-self.peaksize > p2: # move pos2
+            p1 = pos1[i1]
+            p2 = pos2[i2]
+            if p1-self.peaksize > p2 or index2[i2] != 0: # move pos2, skip multi-aligning reads
                 i2 += 1
             elif p1+self.peaksize < p2: # move pos1
                 i1 += 1                 
@@ -206,7 +204,7 @@ Summary of Peak Model:
                 i2+=1
         return line
 
-    def __paired_peaks (self):
+    def _paired_peaks (self):
         """Call paired peaks from fwtrackI object.
 
         Return paired peaks center positions.
@@ -217,21 +215,22 @@ Summary of Peak Model:
         for chrom in chrs:
             self.debug("Chromosome: %s" % (chrom))
             tags = self.treatment.get_locations_by_chr(chrom)
-            plus_peaksinfo = self.__naive_find_peaks (tags[0])
+            indexes = self.treatment.get_indexes_by_chr(chrom)
+            plus_peaksinfo = self._naive_find_peaks (tags[0], indexes[0])
             self.debug("Number of unique tags on + strand: %d" % (len(tags[0])))            
             self.debug("Number of peaks in + strand: %d" % (len(plus_peaksinfo)))
-            minus_peaksinfo = self.__naive_find_peaks (tags[1])
+            minus_peaksinfo = self._naive_find_peaks (tags[1], indexes[1])
             self.debug("Number of unique tags on - strand: %d" % (len(tags[1])))            
             self.debug("Number of peaks in - strand: %d" % (len(minus_peaksinfo)))
             if not plus_peaksinfo or not minus_peaksinfo:
                 self.debug("Chrom %s is discarded!" % (chrom))
                 continue
             else:
-                paired_peaks_pos[chrom] = self.__find_pair_center (plus_peaksinfo, minus_peaksinfo)
+                paired_peaks_pos[chrom] = self._find_pair_center (plus_peaksinfo, minus_peaksinfo)
                 self.debug("Number of paired peaks: %d" %(len(paired_peaks_pos[chrom])))
         return paired_peaks_pos
 
-    def __find_pair_center (self, pluspeaks, minuspeaks):
+    def _find_pair_center (self, pluspeaks, minuspeaks):
         ip = 0                  # index for plus peaks
         im = 0                  # index for minus peaks
         im_prev = 0             # index for minus peaks in previous plus peak
@@ -259,28 +258,34 @@ Summary of Peak Model:
                 im += 1
         return pair_centers
             
-    def __naive_find_peaks (self, taglist ):
+    def _naive_find_peaks (self, taglist, indexlist ):
         """Naively call peaks based on tags counting.
 
-        New: do not include reads with multiple alignments
+        Do NOT include reads with multiple alignments. This exclusion filters
+        down through all of the model building phase.
 
         Return peak positions and the tag number in peak region by a tuple list [(pos,num)].
         """
         peak_info = []    # store peak pos in every peak region and
                           # unique tag number in every peak region
-        # filter any multireads from this process
-        taglist = filter(lambda t: type(t) is int, taglist)
-
         if len(taglist)<2:
             return peak_info
-        pos = taglist[0]
-
-        current_tag_list = [pos]   # list to find peak pos
-
-        for i in range(1,len(taglist)):
+        
+        first_pos = None
+        for i in xrange(len(taglist)):
+            # get first non-multi read
+            if indexlist[i] == 0:
+                first_pos = i
+                break
+        if first_pos is None:
+            return peak_info
+        current_tag_list = [taglist[first_pos]]
+        for i in range(first_pos+1, len(taglist)):
+            if indexlist[i] != 0:  # filter out multi reads in building model
+                continue
             pos = taglist[i]
             
-            # Jake - This step seems ad-hoc. a stretch of bw*2 is considered,
+            # Jake - This step seems incorrect. a stretch of bw*2 is considered,
             # always originating at the next read. Say the stretch divides a
             # peak in half and is most potent in the middle.  Then the counts 
             # will be high at the end of this peak and the beginning of the next.
@@ -294,7 +299,7 @@ Summary of Peak Model:
             if (pos-current_tag_list[0]+1) > self.peaksize: # call peak in current_tag_list
                 # a peak will be called if tag number is ge min tags.
                 if len(current_tag_list) >= self.min_tags and len(current_tag_list) <= self.max_tags:
-                    peak_info.append((self.__naive_peak_pos(current_tag_list),len(current_tag_list)))
+                    peak_info.append((self._naive_peak_pos(current_tag_list),len(current_tag_list)))
                 current_tag_list = [] # reset current_tag_list
 
             current_tag_list.append(pos)   # add pos while 1. no
@@ -302,7 +307,7 @@ Summary of Peak Model:
                                            # 2. current_tag_list is []
         return peak_info
 
-    def __naive_peak_pos (self, pos_list ):
+    def _naive_peak_pos (self, pos_list ):
         """Naively calculate the position of peak.
 
         return the highest peak summit position.

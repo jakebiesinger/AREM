@@ -29,6 +29,9 @@ elif array('d',[1]).itemsize == 4:
 else:
     raise Exception("FBYTE4 type cannot be determined!")
 
-def get_read_start(read):
-    'get the start of the given read, which may be the start or a tuple of (start, index)'
-    return read[0] if type(read) is tuple else read
+def breakpoint():
+    try:
+        import ipdb as pdb
+    except ImportError:
+        import pdb
+    pdb.set_trace()

@@ -20,7 +20,7 @@ with the distribution).
 import logging
 import struct
 import gzip
-from random import sample as random_sample
+from random import randrange as random_range
 from math import log as mathlog
 from operator import mul as op_multipy
 from MACS14.Constants import *
@@ -149,59 +149,87 @@ class MultiReadParser:
             qual_offset = 33
         elif opt.qual_scale == 'illumina+64':
             qual_offset = 64
+        group_starts_append = fwtrack.group_starts.append
+        fwtrack_add_loc = fwtrack.add_loc
+        match_probs = {} # {(1,30):p(match|phred=30), (0,30):p(mismatch|phred=30)}
 
         for grouplines in self._group_by_name(self.fhd):
-            fwtrack.total+=1
-            # process the set of multi-reads
-            if len(grouplines) > 1:
-                if no_multi_reads:  # throw away multi-reads
-                    fwtrack.total -= 1
-                    continue
-                elif random_select_one_multi:  # choose one alignment at random
-                    grouplines = random_sample(grouplines, 1)
-                    grouplines[0].append(0) # call this a unique read
-                else:
-                    fwtrack.group_starts.append(fwtrack.total_multi + 1)  # start index of read group
-                    # TODO: might want to be working in log space-- if many mismatches, we'll lose precision
-                    qualstr = grouplines[0][3]  # all quality strings are shared across the group
-                    mm_probs = [10**((qualstr[b] - qual_offset)/-10.) 
-                                for b in range(len(qualstr))]
-                    if qualstr[b] - qual_offset < 0:  # quick & dirty check-- only looking at last base
-                        raise BaseQualityError("Specified quality scale yielded a negative phred score!  You probably have the wrong scale")
-                    match_probs = [1 - mm_probs[b] for b in 
-                                   range(len(qualstr))]
-                    read_probs = []
-                    total_prob = 0
-                    for index, (chromosome,fpos,strand, qualstr,
-                                   mismatches) in enumerate(grouplines):
-                        # update with multi-index
-                        grouplines[index].append(fwtrack.total_multi + 1)
-                        mismatches = set(mismatches)  # faster?
-                        base_probs = [mm_probs[b] if b in mismatches else match_probs[b]
-                                        for b in range(len(qualstr))]
-                        prob = reduce(op_multipy, base_probs)
-                        read_probs.append(prob)
-                        total_prob += prob
-                        fwtrack.total_multi += 1
-                    if use_uniform:
-                        normed_probs = [1./len(grouplines)] * len(grouplines)
-                    else:
-                        normed_probs = [p / total_prob for p in read_probs]
-                    fwtrack.prob_aligns.extend(normed_probs)
-                    fwtrack.prior_aligns.extend(normed_probs)
-                    fwtrack.enrich_scores.extend([min_score] * len(grouplines))
-            else:
-                grouplines[0].append(0)  # unique reads point to 0 index
-            # add the set to the fwtrack 
-            for chromosome,fpos,strand,qualstr,mismatches,index in grouplines:
+            fwtrack.total+=1  # in ratios, only count reads, not total alignments
+            if len(grouplines) == 1:
+                # uniquely mapping reads
                 i+=1
                 if i == 1000000:
                     m += 1
                     logging.info(" %d alignments read." % (m*1000000))
                     i=0
-                if not fpos or not chromosome:
+                chromosome, fpos, strand, qualstr, mismatches = grouplines[0]
+                fwtrack_add_loc(chromosome,fpos,strand,0) # 0'th index => unique
+            else:
+                if no_multi_reads:  # throw away multi-reads
+                    fwtrack.total -= 1
                     continue
-                fwtrack.add_loc(chromosome,fpos,strand,index)
+                elif random_select_one_multi:  # choose one alignment at random
+                    i+=1
+                    if i == 1000000:
+                        m += 1
+                        logging.info(" %d alignments read." % (m*1000000))
+                        i=0
+                    randline = grouplines[random_range(len(grouplines))]
+                    chromosome,fpos,strand,qualstr,mismatches = randline
+                    fwtrack_add_loc(chromosome,fpos,strand,0)
+                else:  # use all alignments probabilistically
+                    group_starts_append(fwtrack.total_multi + 1)  # starts at 1 (0 reserved for unique reads)
+                    if use_uniform:
+                        for (chromosome,fpos,strand, qualstr,mismatches) in grouplines:
+                            i+=1
+                            if i == 1000000:
+                                m += 1
+                                logging.info(" %d alignments read." % (m*1000000))
+                                i=0
+                            fwtrack.total_multi += 1
+                            fwtrack_add_loc(chromosome,fpos,strand,
+                                            fwtrack.total_multi)
+                        normed_probs = [1./len(grouplines)] * len(grouplines)
+                    else:
+                        # TODO: might want to be working in log space-- if many mismatches, we'll lose precision
+                        qualstr = grouplines[0][3]  # all quality strings are shared across the group
+                        #mismatch_probs = [10.**((qualstr[b] - qual_offset)/-10.) 
+                        #            for b in xrange(len(qualstr))]
+                        #if qualstr[b] < qual_offset:  # quick & dirty check-- only looking at last base
+                        #    raise BaseQualityError("Specified quality scale yielded a negative phred score!  You probably have the wrong scale")
+                        #match_probs = [1 - mismatch_probs[b] for b in 
+                        #               xrange(len(qualstr))]
+                        group_total_prob = 0.
+                        group_probs = []
+                        group_probs_append = group_probs.append
+                        for (chromosome,fpos,strand, qualstr, mismatches) in grouplines:
+                            i+=1
+                            if i == 1000000:
+                                m += 1
+                                logging.info(" %d alignments read." % (m*1000000))
+                                i=0
+                            fwtrack.total_multi += 1
+                            fwtrack_add_loc(chromosome,fpos,strand,
+                                            fwtrack.total_multi)
+                            mismatches = set(mismatches)
+                            read_prob = 1.
+                            for b in xrange(len(qualstr)):
+                                tup = (b in mismatches,qualstr[b])
+                                if tup in match_probs:
+                                    prob = match_probs[tup]
+                                elif tup[0]:  # mismatch
+                                    prob = 10. ** ((qualstr[b]-qual_offset)/-10.)
+                                    match_probs[tup] = prob
+                                else:  # match
+                                    prob = 1. - 10. ** ((qualstr[b]-qual_offset)/-10.)
+                                    match_probs[tup] = prob
+                                read_prob *= prob
+                            group_probs_append(read_prob)
+                            group_total_prob += read_prob
+                        normed_probs = [p / group_total_prob for p in group_probs]
+                    fwtrack.prob_aligns.extend(normed_probs)
+                    fwtrack.prior_aligns.extend(normed_probs)
+                    fwtrack.enrich_scores.extend([min_score] * len(grouplines))
         return fwtrack
     
     def _guess_qual_scale(self):
@@ -250,6 +278,9 @@ class MultiReadParser:
         for thisline in filelines:
             (chromosome,fpos,strand,tagname,qualstr,mismatches
                 ) = self._fw_parse_line(thisline)
+            if not fpos or not chromosome:
+                print 'skipping', thisline
+                continue
             if cur_tagname is None:
                 cur_tagname = tagname  # first line
             elif cur_tagname != tagname:
@@ -681,8 +712,8 @@ class PairEndELANDMultiParser(GenericParser):
             # one of the tag cann't be mapped to genome
             return (None,None,None)
         else:
-            lefthits = self.__parse_line_to_dict(leftfields[3])
-            righthits = self.__parse_line_to_dict(rightfields[3])            
+            lefthits = self._parse_line_to_dict(leftfields[3])
+            righthits = self._parse_line_to_dict(rightfields[3])            
             parings = []
 
             for seqname in lefthits.keys():
@@ -721,7 +752,7 @@ class PairEndELANDMultiParser(GenericParser):
             else:
                 return parings[0][1:]                                
                     
-    def __parse_line_to_dict ( self, linestr ):
+    def _parse_line_to_dict ( self, linestr ):
         items = linestr.split(',')
         hits = {}
         for item in items:
@@ -924,7 +955,7 @@ class BAMParser(GenericParser):
             #print entrylength
             data = fread(entrylength)
             #print n
-            #(chrid,fpos,strand) = self.__fw_binary_parse(fread(entrylength))
+            #(chrid,fpos,strand) = self._fw_binary_parse(fread(entrylength))
             s += struct.unpack('<i', data[16:20])[0]
             #print n
             n += 1
@@ -963,7 +994,7 @@ class BAMParser(GenericParser):
                 entrylength = struct.unpack('<i', fread(4))[0]
             except struct.error:
                 break
-            (chrid,fpos,strand) = self.__fw_binary_parse(fread(entrylength))                    
+            (chrid,fpos,strand) = self._fw_binary_parse(fread(entrylength))                    
             i+=1
             if i == 1000000:
                 m += 1
@@ -974,7 +1005,7 @@ class BAMParser(GenericParser):
         self.fhd.close()
         return fwtrack
     
-    def __fw_binary_parse (self, data ):
+    def _fw_binary_parse (self, data ):
         # we skip lot of the available information in data (i.e. tag name, quality etc etc)
         if not data: return (None,-1,None)
 
