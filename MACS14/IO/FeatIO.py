@@ -250,16 +250,17 @@ class FWTrackII:
         """
         self.fw = fw
         self.__locations = {}           # locations
+        self.__indexes = {}             # index into multi read arrays
         self.__sorted = False
         self.total = 0                  # total tags
         self.annotation = anno   # need to be figured out
-        self.prob_aligns = array(FBYTE4, [])
-        self.prior_aligns = array(FBYTE4, [])  # prior prob of aligning- based on quals
-        self.enrich_scores = array(FBYTE4, [])
+        self.prob_aligns = array(FBYTE4, [1])
+        self.prior_aligns = array(FBYTE4, [1])  # prior prob of aligning- based on quals
+        self.enrich_scores = array(FBYTE4, [1])
         self.group_starts = array(BYTE4, [])
         self.total_multi = 0
 
-    def add_loc (self, chromosome, fiveendpos, strand):
+    def add_loc (self, chromosome, fiveendpos, strand, index):
         """Add a location to the list according to the sequence name.
         
         chromosome -- mostly the chromosome name
@@ -267,9 +268,11 @@ class FWTrackII:
         strand     -- 0: plus, 1: minus
         """
         if not self.__locations.has_key(chromosome):
-            ##self.__locations[chromosome] = [array(BYTE4,[]),array(BYTE4,[])] # for (+strand, -strand)
-            self.__locations[chromosome] = [[],[]] # for (+strand, -strand)
+            self.__locations[chromosome] = [array(BYTE4,[]),array(BYTE4,[])] # for (+strand, -strand)
+            self.__indexes[chromosome] = [array(BYTE4,[]),array(BYTE4,[])] # for (+strand, -strand)
+            #self.__locations[chromosome] = [[],[]] # for (+strand, -strand)
         self.__locations[chromosome][strand].append(fiveendpos)
+        self.__indexes[chromosome][strand].append(index)
 
     def get_locations_by_chr (self, chromosome):
         """Return a tuple of two lists of locations for certain chromosome.
@@ -277,6 +280,25 @@ class FWTrackII:
         """
         if self.__locations.has_key(chromosome):
             return self.__locations[chromosome]
+        else:
+            raise Exception("No such chromosome name (%s) in TrackI object!\n" % (chromosome))
+
+    def get_indexes_by_chr (self, chromosome):
+        """Return a tuple of two lists of indexes for a certain chromosome.
+
+        """
+        if self.__indexes.has_key(chromosome):
+            return self.__indexes[chromosome]
+        else:
+            raise Exception("No such chromosome name (%s) in TrackI object!\n" % (chromosome))
+    
+    def get_locations_indexes_by_chr(self, chromosome):
+        """Return a tuple of (location, index), parsed from the normal large array
+        
+        """
+        if self.__locations.has_key(chromosome):
+            return (zip(self.__locations[chromosome][0],self.__indexes[chromosome][0]),
+                    zip(self.__locations[chromosome][1],self.__indexes[chromosome][1]))
         else:
             raise Exception("No such chromosome name (%s) in TrackI object!\n" % (chromosome))
 
@@ -297,16 +319,19 @@ class FWTrackII:
         
         """
         for k in self.__locations.keys():
-            (tmparrayplus,tmparrayminus) = self.get_locations_by_chr(k)
-            ##self.__locations[k][0] = sorted(tmparrayplus)
-            self.__locations[k][0] = sorted(tmparrayplus, key=get_read_start)
-            if len(tmparrayplus) < 1:
-                logging.warning("NO records for chromosome %s, plus strand!" % (k))
-            ##self.__locations[k][1] = sorted(tmparrayminus)
-            self.__locations[k][1] = sorted(tmparrayminus, key=get_read_start)
-            if len(tmparrayminus) < 1:            
-                logging.warning("NO records for chromosome %s, minus strand!" % (k))
-        self.__sorted = True
+            self.sort_chrom(k)
+            self.__sorted = True
+
+    def sort_chrom(self, k):
+        g0 = itemgetter(0)
+        g1 = itemgetter(1)
+        (tmparrayplus,tmparrayminus) = self.get_locations_indexes_by_chr(k)
+        sortedtmparrayplus = sorted(tmparrayplus,key=g0)
+        self.__locations[k][0] = [g0(x) for x in sortedtmparrayplus]
+        self.__indexes[k][0] = [g1(x) for x in sortedtmparrayplus]
+        sortedtmparrayminus = sorted(tmparrayminus,key=g0)
+        self.__locations[k][1] = [g0(x) for x in sortedtmparrayminus]
+        self.__indexes[k][1] = [g1(x) for x in sortedtmparrayminus]
 
     def filter_dup (self,maxnum):
         """Filter the duplicated reads.
@@ -319,91 +344,78 @@ class FWTrackII:
         for k in self.__locations.keys(): # for each chromosome
             # + strand
             plus = self.__locations[k][0]
-            if len(plus) <1:
-                new_plus = []
+            plus_ind = self.__indexes[k][0]
+            total_unique = 0
+            if len(plus) < 1:
+                new_plus = array(BYTE4,[])
+                new_plus_ind = array(BYTE4,[])
             else:
-                ##new_plus = array(BYTE4,[plus[0]])
-                new_plus = [plus[0]]
+                new_plus = array(BYTE4,[plus[0]])
+                new_plus_ind = array(BYTE4,[plus_ind[0]])
                 pappend = new_plus.append
+                pind_append = new_plus_ind.append
                 n = 1                # the number of tags in the current location
                 current_loc = plus[0]
-                for p in plus[1:]:
+                for ind, p in zip(plus_ind[1:], plus[1:]):
                     if p == current_loc:
                         n += 1
                         if n <= maxnum:
                             pappend(p)
+                            pind_append(ind)
+                            if ind == 0:
+                                total_unique += 1
                     else:
                         current_loc = p
                         pappend(p)
+                        pind_append(ind)
+                        if ind == 0:
+                            total_unique += 1
                         n = 1
-                self.total +=  len(new_plus)
+                self.total +=  total_unique
 
             # - strand
             minus = self.__locations[k][1]
-            if len(minus) <1:
-                new_minus = []
+            minus_ind = self.__indexes[k][1]
+            total_unique = 0
+            if len(minus) < 1:
+                new_minus = array(BYTE4,[])
+                new_minus_ind = array(BYTE4,[])
             else:
-                ##new_minus = array(BYTE4,[minus[0]])
-                new_minus = [minus[0]]
+                new_minus = array(BYTE4,[minus[0]])
+                new_minus_ind = array(BYTE4,[minus_ind[0]])
                 mappend = new_minus.append
+                mind_append = new_minus_ind.append
                 n = 1                # the number of tags in the current location
                 current_loc = minus[0]
-                for p in minus[1:]:
-                    if p == current_loc:
+                for ind, m in zip(minus_ind[1:], minus[1:]):
+                    if m == current_loc:
                         n += 1
                         if n <= maxnum:
-                            mappend(p)
+                            mappend(m)
+                            mind_append(ind)
+                            if ind == 0:
+                                total_unique += 1
                     else:
-                        current_loc = p
-                        mappend(p)
+                        current_loc = m
+                        mappend(m)
+                        mind_append(ind)
+                        if ind == 0:
+                            total_unique += 1
                         n = 1
-                self.total +=  len(new_minus)
+                self.total +=  total_unique
             self.__locations[k]=[new_plus,new_minus]
+            self.__indexes[k] = [new_plus_ind, new_minus_ind]
 
     def merge_plus_minus_locations_naive (self):
         """Merge plus and minus strand locations
         
         """
         for chrom in self.__locations.keys():
-            #(plus_tags,minus_tags) = self.__locations[chrom]
             self.__locations[chrom][0].extend(self.__locations[chrom][1])
-            self.__locations[chrom][0] = sorted(self.__locations[chrom][0], key=get_read_start)
+            self.__indexes[chrom][0].extend(self.__indexes[chrom][1])
             self.__locations[chrom][1] = []
-
-    def merge_plus_minus_locations (self):
-        """Merge plus and minus strand locations.
-
-        Tao: Amazingly, this function for merging two sorted lists is
-        slower than merge_plus_minus_locations_naive which only
-        concatenate the two lists then sort it again! I am so discouraged!
-        """
-        if not self.__sorted:
-            self.sort()
-        for chrom in self.__locations.keys():
-            (plus_tags,minus_tags) = self.__locations[chrom]
-            ##new_plus_tags = array(BYTE4,[])
-            new_plus_tags = []  # jake: don't think this is ever used, but just to be safe...
-            ip = 0
-            im = 0
-            lenp = len(plus_tags)
-            lenm = len(minus_tags)
-            while ip < lenp and im < lenm:
-                if plus_tags[ip] < minus_tags[im]:
-                    new_plus_tags.append(plus_tags[ip])
-                    ip += 1
-                else:
-                    new_plus_tags.append(minus_tags[im])
-                    im += 1
-            if im < lenm:
-                # add rest of minus tags
-                new_plus_tags.extend(minus_tags[im:])
-            if ip < lenp:
-                # add rest of plus tags
-                new_plus_tags.extend(plus_tags[ip:])
-                    
-            self.__locations[chrom] = [new_plus_tags,[]]
-            self.total += len(new_plus_tags)
-
+            self.__indexes[chrom][1] = []
+            self.sort_chrom(chrom)
 
     def sample (self, percent):
         """Sample the tags for a given percentage.
@@ -412,19 +424,42 @@ class FWTrackII:
         """
         self.total = 0
         for key in self.__locations.keys():
-            num = int(len(self.__locations[key][0])*percent)
-            ##self.__locations[key][0]=array(BYTE4,sorted(random_sample(self.__locations[key][0],num)))
-            self.__locations[key][0]= sorted(random_sample(self.__locations[key][0],num), key=get_read_start)
-            num = int(len(self.__locations[key][1])*percent)
-            ##self.__locations[key][1]=array(BYTE4,sorted(random_sample(self.__locations[key][1],num)))
-            self.__locations[key][1]=sorted(random_sample(self.__locations[key][1],num), key=get_read_start)
-            self.total += len(self.__locations[key][0]) + len(self.__locations[key][1])
+            plus = self.__locations[key][0]
+            plus_ind = self.__indexes[key][0]
+            total_plus = len(plus)
+            num = int(total_plus*percent)
+            ind_tokeep = sorted(random_sample(xrange(total_plus), num))
+            self.__locations[key][0] = array(BYTE4, (plus[i] for i in ind_tokeep))
+            total_unique = 0
+            self.__indexes[key][0] = array(BYTE4, [])
+            pappend = self.__indexes[key][0].append
+            for i in ind_tokeep:
+                pappend(plus_ind[i])
+                if plus_ind[i] == 0:
+                    total_unique += 1
+            
+            minus = self.__locations[key][1]
+            minus_ind = self.__indexes[key][1]
+            total_minus = len(minus)
+            num = int(total_minus*percent)
+            ind_tokeep = sorted(random_sample(xrange(total_minus), num))
+            self.__locations[key][1] = array(BYTE4, (minus[i] for i in ind_tokeep))
+            self.__indexes[key][1] = array(BYTE4, [])
+            mappend = self.__indexes[key][1].append
+            for i in ind_tokeep:
+                mappend(minus_ind[i])
+                if minus_ind[i] == 0:
+                    total_unique += 1
+
+            self.total += total_unique
             
     def __str__ (self):
         return self.__to_wiggle()
         
     def __to_wiggle (self):
-        """Use a lot of memory!
+        """Use a lot of memory!  
+        
+        # Jake- I don't think this works for redundant tags
         
         """
         t = "track type=wiggle_0 name=\"tag list\" description=\"%s\"\n" % (self.annotation)

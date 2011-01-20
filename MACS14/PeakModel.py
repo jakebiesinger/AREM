@@ -205,7 +205,7 @@ Summary of Peak Model:
                         line[i]+=1
                 i2+=1
         return line
-            
+
     def __paired_peaks (self):
         """Call paired peaks from fwtrackI object.
 

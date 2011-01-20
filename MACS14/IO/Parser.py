@@ -152,14 +152,16 @@ class MultiReadParser:
 
         for grouplines in self._group_by_name(self.fhd):
             fwtrack.total+=1
+            # process the set of multi-reads
             if len(grouplines) > 1:
                 if no_multi_reads:  # throw away multi-reads
                     fwtrack.total -= 1
                     continue
                 elif random_select_one_multi:  # choose one alignment at random
                     grouplines = random_sample(grouplines, 1)
+                    grouplines[0].append(0) # call this a unique read
                 else:
-                    fwtrack.group_starts.append(fwtrack.total_multi)  # start index of read group
+                    fwtrack.group_starts.append(fwtrack.total_multi + 1)  # start index of read group
                     # TODO: might want to be working in log space-- if many mismatches, we'll lose precision
                     qualstr = grouplines[0][3]  # all quality strings are shared across the group
                     mm_probs = [10**((qualstr[b] - qual_offset)/-10.) 
@@ -173,10 +175,8 @@ class MultiReadParser:
                     for index, (chromosome,fpos,strand, qualstr,
                                    mismatches) in enumerate(grouplines):
                         # update with multi-index
-                        grouplines[index] = (chromosome, (fpos, 
-                                                fwtrack.total_multi), strand,
-                                                qualstr, mismatches)
-                        #mismatches = set(mismatches)  # faster?
+                        grouplines[index].append(fwtrack.total_multi + 1)
+                        mismatches = set(mismatches)  # faster?
                         base_probs = [mm_probs[b] if b in mismatches else match_probs[b]
                                         for b in range(len(qualstr))]
                         prob = reduce(op_multipy, base_probs)
@@ -190,7 +190,10 @@ class MultiReadParser:
                     fwtrack.prob_aligns.extend(normed_probs)
                     fwtrack.prior_aligns.extend(normed_probs)
                     fwtrack.enrich_scores.extend([min_score] * len(grouplines))
-            for chromosome,fpos,strand,qualstr,mismatches in grouplines:
+            else:
+                grouplines[0].append(0)  # unique reads point to 0 index
+            # add the set to the fwtrack 
+            for chromosome,fpos,strand,qualstr,mismatches,index in grouplines:
                 i+=1
                 if i == 1000000:
                     m += 1
@@ -198,7 +201,7 @@ class MultiReadParser:
                     i=0
                 if not fpos or not chromosome:
                     continue
-                fwtrack.add_loc(chromosome,fpos,strand)
+                fwtrack.add_loc(chromosome,fpos,strand,index)
         return fwtrack
     
     def _guess_qual_scale(self):
@@ -253,7 +256,7 @@ class MultiReadParser:
                 yield aligns  # ID changed, so report all alignments for the previous read
                 cur_tagname = tagname
                 aligns = []
-            aligns.append((chromosome,fpos,strand, qualstr, mismatches))
+            aligns.append([chromosome, fpos, strand, qualstr, mismatches])
         if cur_tagname is not None:
             yield aligns  # might be one last alignment-- reported when ID changes
     

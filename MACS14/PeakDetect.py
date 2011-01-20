@@ -16,7 +16,13 @@ with the distribution).
 import os
 from math import log as mathlog
 from array import array
-from itertools import count as itertools_count
+from itertools import count as itertools_count, izip as itertools_izip
+
+try:
+    import numpy
+    use_numpy = True
+except ImportError:
+    use_numpy = False
 
 from MACS14.OutputWriter import zwig_write
 from MACS14.IO.FeatIO import PeakIO,WigTrackI,BinKeeperI
@@ -252,7 +258,7 @@ class PeakDetect:
             else:
                 zwig_write(self.treat,self.opt.wig_dir_tr,self.zwig_tr,self.d,log=self.info,space=self.opt.space,single=self.opt.singlewig)
         self.info("#3 call peak candidates")
-        peak_candidates = self.__call_peaks_from_trackI (self.treat, self.treat.prob_aligns)
+        peak_candidates = self.__call_peaks_from_trackI (self.treat)
         
         # Jake - Seems off to me that we call treatment candidate peaks before
         # shifting the control data- I get high c_peak_lambdas if we shift control first
@@ -272,21 +278,11 @@ class PeakDetect:
             else:
                 zwig_write(self.control,self.opt.wig_dir_ctl,self.zwig_ctl,self.d,log=self.info,space=self.opt.space,single=self.opt.singlewig)
         self.info("#3 call negative peak candidates")
-        negative_peak_candidates = self.__call_peaks_from_trackI (self.control, self.control.prob_aligns)
+        negative_peak_candidates = self.__call_peaks_from_trackI (self.control)
         
         if self.treat.total_multi > 0 and not self.opt.no_EM:
             self.info("#3.5 Perform EM on treatment multi reads")
-            self.__align_by_EM(self.treat, self.control, peak_candidates, self.ratio_treat2control, fake_when_missing=True)
-
-        # build score
-        #if self.save_score:
-        #    self.info("#4 build scores")
-        #    scoreswig = self.__build_score_wigtrackI(treatwig,controlbkI,self.d,space=self.opt.space,bglambda=self.lambda_bg)
-        #    zwigfile = file(self.opt.name+".score.wig","w")
-        #    self.info("#4.1 save scores to wiggle file")            
-        #    scoreswig.write_wig(zwigfile,"score")
-        #    self.info("compress the wiggle file using gzip...")
-        #    os.system("gzip "+self.opt.name+".score.wig")
+            self.__align_by_EM(self.treat, self.control, peak_candidates, self.ratio_treat2control)
         
         self.info("#3 use control data to filter peak candidates...")
         self.final_peaks = self.__filter_w_control(peak_candidates,self.treat,self.control, self.ratio_treat2control,fake_when_missing=True)
@@ -317,7 +313,7 @@ class PeakDetect:
             else:
                 zwig_write(self.treat,self.opt.wig_dir_tr,self.zwig_tr,self.d,log=self.info,space=self.opt.space,single=self.opt.singlewig)
         self.info("#3 call peak candidates")
-        peak_candidates = self.__call_peaks_from_trackI (self.treat, self.treat.prob_aligns)
+        peak_candidates = self.__call_peaks_from_trackI (self.treat)
         self.info("#3 use self to calculate local lambda and  filter peak candidates...")
         self.final_peaks = self.__filter_w_control(peak_candidates,self.treat,self.treat,1,pass_sregion=True)
         return self.final_peaks
@@ -360,8 +356,8 @@ class PeakDetect:
         chrs = peak_info.keys()
         chrs.sort()
         total = 0
-        get_t_read_prob = lambda read: 1. if type(read) is not tuple else treatment.prob_aligns[read[1]]
-        get_c_read_prob = lambda read: 1. if type(read) is not tuple else control.prob_aligns[read[1]]
+        t_prob_aligns = treatment.prob_aligns
+        c_prob_aligns = control.prob_aligns
         for chrom in chrs:
             self.debug("#3 Chromosome %s" % (chrom))
             n_chrom = 0
@@ -369,20 +365,24 @@ class PeakDetect:
             peak_list = peak_info[chrom]
             try:
                 (ctags,tmp) = control.get_locations_by_chr(chrom)
+                (ctags_ind, tmp) = control.get_indexes_by_chr(chrom)
             except:
                 self.warn("Missing %s data, skip it..." % (chrom))
                 if fake_when_missing:
                     ctags = [-1,]
+                    ctags_ind = [0]
                     self.warn("Fake a tag at %s:%d" % (chrom,-1))
                     tmp=[]
                 else:
                     continue
             try:
                 (ttags,tmp) = treatment.get_locations_by_chr(chrom)
+                (ttags_ind, tmp) = treatment.get_indexes_by_chr(chrom)
             except:
                 self.warn("Missing %s data, skip it..." % (chrom))
                 if fake_when_missing:
                     ttags = [-1,]
+                    ttags_ind = [0]
                     self.warn("Fake a tag at %s:%d" % (chrom,-1))
                     tmp=[]
                 else:
@@ -427,10 +427,10 @@ class PeakDetect:
 
                     #print 'index_ctag: %s, ctags[j] %s' % (index_ctag, ctags[index_ctag])
                     while index_ctag < len_ctags:
-                        if get_read_start(ctags[index_ctag]) < left_lregion:
+                        if ctags[index_ctag] < left_lregion:
                             # go to next control tag
                             index_ctag+=1
-                        elif right_lregion < get_read_start(ctags[index_ctag]) \
+                        elif right_lregion < ctags[index_ctag] \
                             or index_ctag + 1 >= len_ctags:
                             # finalize and go to next peak region
                             flag_find_ctag_locally = False
@@ -440,8 +440,8 @@ class PeakDetect:
                             if not flag_find_ctag_locally:
                                 flag_find_ctag_locally = True
                                 prev_index_ctag = index_ctag
-                            p = get_read_start(ctags[index_ctag])
-                            prob = get_c_read_prob(ctags[index_ctag])
+                            p = ctags[index_ctag]
+                            prob = c_prob_aligns[ctags_ind[index_ctag]]
                             if left_peak <= p <= right_peak:
                             #if peak_start <= p <= peak_end:  # Jake-- wouldn't this make more sense?
                                 cnum_peak += prob
@@ -455,10 +455,10 @@ class PeakDetect:
 
                     inds_in_peak = []
                     while index_ttag < len_ttags:
-                        if get_read_start(ttags[index_ttag]) < left_lregion:
+                        if ttags[index_ttag] < left_lregion:
                             # go to next treatment tag
                             index_ttag+=1
-                        elif right_lregion < get_read_start(ttags[index_ttag]) \
+                        elif right_lregion < ttags[index_ttag] \
                             or index_ttag + 1 >= len_ttags:
                             # finalize and go to next peak region
                             flag_find_ttag_locally = False
@@ -468,10 +468,10 @@ class PeakDetect:
                             if not flag_find_ttag_locally:
                                 flag_find_ttag_locally = True
                                 prev_index_ttag = index_ttag
-                            p = get_read_start(ttags[index_ttag])
-                            prob = get_t_read_prob(ttags[index_ttag])
+                            p = ttags[index_ttag]
+                            prob = t_prob_aligns[ttags_ind[index_ttag]]
                             if left_peak <= p <= right_peak:
-                            #if peak_start <= p <= peak_end:  # Jake-- again, seems to be more accurate...
+                            #if peak_start <= p <= peak_end:  # Jake-- again, seems this would be more accurate...
                                 tnum_peak += prob
                                 tnum_peak_total += 1
                                 inds_in_peak.append(index_ttag)
@@ -507,83 +507,54 @@ class PeakDetect:
                 #print 'counts:', cnum_peak, cnum_sregion, cnum_lregion
                 #print 'lambdas:', clambda_peak, clambda_sregion, clambda_lregion, lambda_bg
                 
-                if self.call_peak_extend_reads:
-                    # call subpeaks from peak heights. Extend each read by scan_window 
-                    # and require a min height corresponding to the bg_lambda.
-                    # bases out from the tag center.  Then call subpeaks by looking
-                    # for regions that are at least as high as the pvalue minimum.
-                    # separate regions that don't pass this criteria
-                    peak_tags = [ttags[j] for j in inds_in_peak]
-                    #peak_height_lambda = self.lambda_bg / self.scan_window * 
-                    thresh_upper = poisson_cdf_inv(1-pow(10,self.pvalue/-10),local_lambda)
-                    pval_low = poisson_cdf(thresh_upper, local_lambda, lower=False)
-                    pval_high = poisson_cdf(thresh_upper - 1, local_lambda, lower=False)
-                    pval_mid = pow(10, self.pvalue/-10)
-                    thresh_subpeak = thresh_upper + -1./(pval_high - pval_low) * (pval_mid - pval_high)  # rise of -1, run of diff(pvals)
-                    #print self.min_tags, self.scan_window
-                    #print peak_tags
-                    #print 'min threshold for local_lambda %s, peak_length %s is %s' % (local_lambda, peak_length, thresh_subpeak)
-                    subpeaks = self.__tags_call_peak_w_subpeaks(peak_tags,
-                                        treatment.prob_aligns, thresh_subpeak)
-                    #print subpeaks
-                    for sub_p in subpeaks:
-                        n_chrom += 1
-                        total += 1
-                        (peak_start,peak_end,peak_length,peak_summit,
-                            peak_height, starts_in_peak) = sub_p
-                        peak_num_tags = len(starts_in_peak)
-                        peak_mass = sum([get_t_read_prob(p) for p in starts_in_peak])
-                        p_tmp = poisson_cdf(peak_mass,local_lambda,lower=False)
-                        if p_tmp <= 0:
-                            peak_pvalue = 3100
-                        else:
-                            peak_pvalue = mathlog(p_tmp,10) * -10
-                        peak_fold_enrichment = float(peak_height)/local_lambda*window_size_4_lambda/self.d
-                        final_peak_info[chrom].append((peak_start,peak_end,peak_length,peak_summit,peak_height,peak_mass,peak_pvalue,peak_fold_enrichment))
 
-                elif not self.opt.no_greedy_caller:
+                if not self.opt.no_greedy_caller:
                     # build up sub peaks from the candidate we are iterating over
                     # by greedily adding tags to the current subpeak.  To avoid
                     # local minima, we always look at least scanwindow bases away
                     # get reads within first scanwindow
                     cpr_tags = [ttags[inds_in_peak[0]]]
-                    cpr_mass = get_t_read_prob(ttags[inds_in_peak[0]])
+                    cpr_probs = [t_prob_aligns[ttags_ind[inds_in_peak[0]]]]
+                    cpr_mass = cpr_probs[-1]
                     j = 1
                     while j < len(inds_in_peak):
-                        cur_dist = get_read_start(ttags[inds_in_peak[j]]) - get_read_start(cpr_tags[0])
-                        if cur_dist <= self.scan_window:
+                        cur_dist = ttags[inds_in_peak[j]] - cpr_tags[0]
+                        if cur_dist <= self.scan_window: # always look scan_window away
                             cpr_tags.append(ttags[inds_in_peak[j]])
-                            cpr_mass += get_t_read_prob(cpr_tags[-1])
+                            cpr_probs.append(t_prob_aligns[ttags_ind[inds_in_peak[j]]])
+                            cpr_mass += cpr_probs[-1]
                             j += 1
                         else:
                             break
                     # add reads to current peak if they improve the enrichment
-                    cpr_width = get_read_start(cpr_tags[-1]) - get_read_start(cpr_tags[0])
+                    cpr_width = cpr_tags[-1] - cpr_tags[0]
                     lambda_width = max(cpr_width, self.scan_window)
                     cpr_pval = poisson_cdf(cpr_mass,local_lambda * lambda_width / window_size_4_lambda,lower=False)
-                    middle_mass = 0
+                    middle_probs = []
                     #print 'on first', cpr_width, cpr_mass, cpr_pval, cpr_tags
                     #print j, len(inds_in_peak)
                     while j < len(inds_in_peak):
                         #print cpr_width, cpr_mass, cpr_pval, cpr_tags
-                        test_posn = get_read_start(ttags[inds_in_peak[j]])
-                        cur_dist = test_posn - get_read_start(cpr_tags[-1])
+                        test_posn = ttags[inds_in_peak[j]]
+                        cur_dist = test_posn - cpr_tags[-1]
                         if cur_dist <= self.scan_window:
-                            test_width = test_posn - get_read_start(cpr_tags[0])
+                            test_width = test_posn - cpr_tags[0]
                             lambda_width = max(test_width, self.scan_window)
-                            test_mass = cpr_mass + middle_mass + get_t_read_prob(ttags[inds_in_peak[j]])
+                            test_mass = cpr_mass + sum(middle_probs) + t_prob_aligns[ttags_ind[inds_in_peak[j]]]
                             test_pval = poisson_cdf(test_mass,local_lambda * lambda_width / window_size_4_lambda,lower=False)
                             #print 'vs.', test_width, test_mass, test_pval
                             if test_pval < cpr_pval:
                                 # enrichment improved-- add the tag
                                 cpr_tags.append(ttags[inds_in_peak[j]])
+                                cpr_probs.extend(middle_probs)
+                                cpr_probs.append(t_prob_aligns[ttags_ind[inds_in_peak[j]]])
                                 cpr_mass = test_mass
                                 cpr_width = test_width
                                 cpr_pval = test_pval
-                                middle_mass = 0
+                                middle_probs = []
                                 #print 'accepted'
                             else:
-                                middle_mass += get_t_read_prob(ttags[inds_in_peak[j]])
+                                middle_probs.append(t_prob_aligns[ttags_ind[inds_in_peak[j]]])
                                 #print 'denied'
                             j += 1
                         else:
@@ -594,7 +565,7 @@ class PeakDetect:
                                 cpr_pval = mathlog(cpr_pval,10) * -10
                             #print 'calling peak!', cpr_pval, '>', self.pvalue, ' ?'
                             if cpr_pval > self.pvalue:
-                                p_start, p_end, p_length, p_summit, p_height = self.__tags_call_peak(cpr_tags, treatment.prob_aligns)
+                                p_start, p_end, p_length, p_summit, p_height = self.__tags_call_peak(cpr_tags, cpr_probs)
                                 cpr_enrich = p_height / local_lambda * window_size_4_lambda / self.d
                                 final_peak_info[chrom].append((p_start, p_end, p_length, p_summit, p_height, cpr_mass, cpr_pval, cpr_enrich))
                                 n_chrom += 1
@@ -602,31 +573,34 @@ class PeakDetect:
 
                             # reset cpr
                             cpr_tags = [ttags[inds_in_peak[j]]]
-                            cpr_mass = get_t_read_prob(ttags[inds_in_peak[j]])
+                            cpr_probs = [t_prob_aligns[ttags_ind[inds_in_peak[j]]]]
+                            cpr_mass = cpr_probs[-1]
+                            middle_probs = []
                             while j < len(inds_in_peak):
-                                cur_dist = get_read_start(ttags[inds_in_peak[j]]) - get_read_start(cpr_tags[0])
+                                cur_dist = ttags[inds_in_peak[j]] - cpr_tags[0]
                                 if cur_dist <= self.scan_window:
                                     cpr_tags.append(ttags[inds_in_peak[j]])
-                                    cpr_mass += get_t_read_prob(cpr_tags[-1])
+                                    cpr_probs.append(t_prob_aligns[ttags_ind[inds_in_peak[j]]])
+                                    cpr_mass += cpr_probs[-1]
                                     j += 1
                                 else:
                                     break
-                            cpr_width = get_read_start(cpr_tags[-1]) - get_read_start(cpr_tags[0])
+                            cpr_width = cpr_tags[-1] - cpr_tags[0]
                             if cpr_width > 0:
                                 lambda_width = max(cpr_width, self.scan_window)
                                 cpr_pval = poisson_cdf(cpr_mass,local_lambda * lambda_width / window_size_4_lambda,lower=False)
                             else:
                                 cpr_pval = 1.
-                            middle_mass = 0
                         # clip last tag from the left if it improves enrichment
                         if len(cpr_tags) > 3:
-                            test_width = get_read_start(cpr_tags[-1]) - get_read_start(cpr_tags[1])
-                            test_mass = cpr_mass - get_t_read_prob(cpr_tags[0])
+                            test_width = cpr_tags[-1] - cpr_tags[1]
+                            test_mass = cpr_mass - cpr_probs[0]  # TODO: no longer indexing using tuples-- this line borked
                             lambda_width = max(test_width, self.scan_window)
                             test_pval = poisson_cdf(test_mass,local_lambda * lambda_width / window_size_4_lambda,lower=False)
                             if test_pval < cpr_pval:
                                 # enrichment improved-- add the tag
                                 cpr_tags.pop(0)
+                                cpr_probs.pop(0)
                                 cpr_mass = test_mass
                                 cpr_width = test_width
                                 cpr_pval = test_pval
@@ -638,7 +612,7 @@ class PeakDetect:
                             cpr_pval = mathlog(cpr_pval,10) * -10
                         #print 'calling peak!', cpr_pval, '>', self.pvalue, ' ?'
                         if cpr_pval > self.pvalue:
-                            p_start, p_end, p_length, p_summit, p_height = self.__tags_call_peak(cpr_tags, treatment.prob_aligns)
+                            p_start, p_end, p_length, p_summit, p_height = self.__tags_call_peak(cpr_tags, cpr_probs)
                             cpr_enrich = p_height / local_lambda * window_size_4_lambda / self.d
                             final_peak_info[chrom].append((p_start, p_end, p_length, p_summit, p_height, cpr_mass, cpr_pval, cpr_enrich))
                             n_chrom += 1
@@ -656,7 +630,7 @@ class PeakDetect:
         self.info("#3 Finally, %d peaks are called!" % (total))
         return final_peak_info
 
-    def __call_peaks_from_trackI (self, trackI, prob_aligns):
+    def __call_peaks_from_trackI (self, trackI):
         """Call peak candidates from trackI data. Using every tag as
         step and scan the self.scan_window region around the tag. If
         tag number is greater than self.min_tags, then the position is
@@ -664,40 +638,42 @@ class PeakDetect:
 
         Return: data in this format. (peak_start,peak_end,peak_length,peak_summit,peak_height,peak_num_tags)
         """
+        prob_aligns = trackI.prob_aligns
         peak_candidates = {}
         self.debug("#3 search peak condidates...")
         chrs = trackI.get_chr_names()
         total = 0
-        get_read_prob = lambda read: 1. if type(read) is not tuple else prob_aligns[read[1]]
         for chrom in chrs:
             self.debug("#3 Chromosome %s" % (chrom))
             n_chrom = 0
             peak_candidates[chrom] = []
+            assay = trackI.get_locations_by_chr(chrom)
             (tags,tmp) = trackI.get_locations_by_chr(chrom)
+            (tags_ind, tmp) = trackI.get_indexes_by_chr(chrom)
             len_t = len(tags)
             cpr_tags = []       # Candidate Peak Region tags
             cpr_tags.extend(tags[:self.min_tags-1])
             number_cpr_tags = self.min_tags-1
             p = self.min_tags-1 # Next Tag Index
-            cpr_probs = [get_read_prob(tags[i]) for i in range(p+1)]
+            cpr_probs = [prob_aligns[tags_ind[i]] for i in range(self.min_tags-1)]
             #cpr_indices = range(p+1)
             while p < len_t:
                 if number_cpr_tags >= self.min_tags:
-                    if get_read_start(tags[p]) - get_read_start(cpr_tags[-1*self.min_tags+1]) <= self.scan_window:
+                    if tags[p] - cpr_tags[-1*self.min_tags+1] <= self.scan_window:
                         # add next tag, if the new tag is less than self.scan_window away from previous no. self.min_tags tag
                         cpr_tags.append(tags[p])
-                        cpr_probs.append(get_read_prob(tags[p]))
+                        cpr_probs.append(prob_aligns[tags_ind[p]])
                         #cpr_indices.append(p)
                         number_cpr_tags += 1
                         p+=1
                     else:
                         # candidate peak region is ready, call peak...
-                        (peak_start,peak_end,peak_length,peak_summit,peak_height) = self.__tags_call_peak (cpr_tags, prob_aligns)
+                        (peak_start,peak_end,peak_length,peak_summit,peak_height) = self.__tags_call_peak (cpr_tags, cpr_probs)
                         peak_prob = sum(cpr_probs)
                         #peak_candidates[chrom].append((peak_start,peak_end,peak_length,peak_summit,peak_height,number_cpr_tags, peak_prob, cpr_indices))
                         peak_candidates[chrom].append((peak_start,peak_end,peak_length,peak_summit,peak_height,peak_prob))
                         cpr_tags = [tags[p]] # reset
-                        cpr_probs = [get_read_prob(tags[p])]
+                        cpr_probs = [prob_aligns[tags_ind[p]]]
                         #cpr_indices = [p]
                         number_cpr_tags = 1
                         total += 1
@@ -707,13 +683,13 @@ class PeakDetect:
                     # add next tag, but if the first one in cpr_tags
                     # is more than self.scan_window away from this new
                     # tag, remove the first one from the list
-                    if get_read_start(tags[p]) - get_read_start(cpr_tags[0]) >= self.scan_window:
+                    if tags[p] - cpr_tags[0] >= self.scan_window:
                         cpr_tags.pop(0)
                         number_cpr_tags -= 1
                         cpr_probs.pop(0)
                         #cpr_indices.pop(0)
                     cpr_tags.append(tags[p])
-                    cpr_probs.append(get_read_prob(tags[p]))
+                    cpr_probs.append(prob_aligns[tags_ind[p]])
                     #cpr_indices.append(p)
                     number_cpr_tags += 1
                     p+=1
@@ -721,24 +697,24 @@ class PeakDetect:
         self.debug("#3 Total number of candidates: %d" % (total))
         return self.__remove_overlapping_peaks(peak_candidates)
                 
-    def __tags_call_peak (self, tags, prob_aligns ):
+    def __tags_call_peak (self, tags, probs ):
         """Project tags to a line. Then find the highest point.
 
         """
-        start = get_read_start(tags[0])-self.d/2
-        end = get_read_start(tags[-1])+self.d/2       # +1 or not?
+        d = self.d
+        start = tags[0]-d/2
+        end = tags[-1]+d/2       # +1 or not?
         region_length = end - start
         line= [0]*region_length
-        for tag in tags:
-            t_start = get_read_start(tag)
-            t_prob = 1. if type(tag) is not tuple else prob_aligns[tag[1]]
-            tag_projected_start = t_start-start-self.d/2
-            tag_projected_end = t_start-start+self.d/2
-            for i in range(tag_projected_start,tag_projected_end):
-                line[i] += t_prob
+        for tag, prob in itertools_izip(tags, probs):
+            t_start = tag
+            tag_projected_start = t_start-start-d/2
+            tag_projected_end = t_start-start+d/2
+            for i in xrange(tag_projected_start,tag_projected_end):
+                line[i] += prob
         tops = []
         top_height = 0
-        for i in range(len(line)):
+        for i in xrange(len(line)):
             if line[i] > top_height:
                 top_height = line[i]
                 tops = [i]
@@ -746,69 +722,6 @@ class PeakDetect:
                 tops.append(i)
         peak_summit = tops[len(tops)/2]+start
         return (start,end,region_length,peak_summit,top_height)
-
-    def __tags_call_peak_w_subpeaks (self, tags, prob_aligns, subpeak_threshold):
-        """Project tags to a line, extending them by self.window_size.
-        break the peak region into subpeaks by looking for non-contiguous
-        regions that pass the p-value threshold.
-        
-        return a list of subpeaks of the format:
-        [(sub_start, sub_end, sub_length, peak_summit, top_height, starts_in_peak), ...]
-        """
-        start = get_read_start(tags[0])-self.scan_window
-        end = get_read_start(tags[-1])+self.scan_window      # +1 or not?
-        region_length = end - start
-        line= [0.]*region_length
-        for tag in tags:
-            t_start = get_read_start(tag)
-            t_prob = 1. if type(tag) is not tuple else prob_aligns[tag[1]]
-            tag_projected_start = t_start-start-self.scan_window
-            tag_projected_end = t_start-start+self.scan_window
-            for i in range(tag_projected_start,tag_projected_end):
-                line[i] += t_prob
-        tops = []
-        top_height = 0
-        in_peak = False
-        subpeaks = []
-        sub_start, sub_end = 0,0
-        for i in range(len(line)):
-            if line[i] >= subpeak_threshold:
-                if line[i] > top_height:
-                    top_height = line[i]
-                    tops = [i]
-                elif line[i] == top_height:
-                    tops.append(i)
-                if in_peak:  # extend the peak region
-                    sub_end = start + i + 1
-                else:  # start the peak region
-                    sub_start, sub_end = start + i, start + i+1
-                    in_peak = True
-                if in_peak and i + 1 >= len(line):  # need to call the last peak
-                    peak_summit = tops[len(tops)/2]+start
-                    sub_length = sub_end - sub_start
-                    subpeaks.append((sub_start, sub_end, sub_length, peak_summit, top_height))
-                    in_peak = False
-                    tops = []
-                    top_height = 0
-            elif in_peak:  # close the peak region
-                peak_summit = tops[len(tops)/2]+start
-                sub_length = sub_end - sub_start
-                subpeaks.append((sub_start, sub_end, sub_length, peak_summit, top_height))
-                in_peak = False
-                tops = []
-                top_height = 0
-        # figure out which tags are in which subpeaks
-        tag_i = 0
-        for sub_i in range(len(subpeaks)):
-            sub_start, sub_end = subpeaks[sub_i][:2]
-            starts_in_peak = []
-            while tag_i < len(tags) and get_read_start(tags[tag_i]) <= sub_end:
-                if get_read_start(tags[tag_i]) >= sub_start:
-                    starts_in_peak.append(tags[tag_i])
-                tag_i += 1
-            assert len(starts_in_peak) > 0
-            subpeaks[sub_i] = subpeaks[sub_i] + (starts_in_peak,)
-        return subpeaks
 
     def __shift_trackI (self, trackI):
         """Shift trackI data to right (for plus strand) or left (for
@@ -821,18 +734,11 @@ class PeakDetect:
             # plus
             for i in range(len(tags[0])):
                 t = tags[0][i]
-                #print t
-                if type(t) is int:
-                    tags[0][i] += self.shift_size
-                else:
-                    tags[0][i] = (t[0] + self.shift_size, t[1])
+                tags[0][i] += self.shift_size
             # minus
             for i in range(len(tags[1])):
                 t = tags[1][i]
-                if type(t) is int:
-                    tags[1][i] -= self.shift_size
-                else:
-                    tags[1][i] = (t[0] - self.shift_size, t[1])
+                tags[1][i] -= self.shift_size
         return
     
     def __build_wigtrackI (self, trackI, space=10):
@@ -844,14 +750,17 @@ class PeakDetect:
         wigtrack.span = space
         d = self.d
         step = 10000000 + 2*d
+        prob_aligns = trackI.prob_aligns
         
         for chrom in chrs:
             tags = trackI.get_locations_by_chr(chrom)[0]
+            tags_ind = trackI.get_indexes_by_chr(chrom)[0]
             l = len(tags)
             window_counts = array(BYTE4,[0]*step)
             startp = -1*d
             endp   = startp+step
             index_tag = 0
+            prob = prob_aligns[tags_ind[index_tag]]
             while index_tag<l:
                 s = tags[index_tag]-d/2     # start of tag
                 e = s+d                     # end of tag
@@ -861,8 +770,9 @@ class PeakDetect:
                     ps = s-startp # projection start
                     pe = ps+d     # projection end
                     for i in xrange(ps,pe):
-                        window_counts[i] += 1
+                        window_counts[i] += prob
                     index_tag += 1
+                    prob = prob_aligns[tags_ind[index_tag]]
                 else:
                     # keep this tag for next window
                     for i in xrange(d,step-d,space):
@@ -906,10 +816,10 @@ class PeakDetect:
 
         self.debug("#3 diag: after shift and merging, treat: %d, control: %d" % (self.treat.total,self.control.total))
         self.info("#3 diag: call peak candidates")
-        peak_candidates = self.__call_peaks_from_trackI (self.treat, self.treat.prob_aligns)
+        peak_candidates = self.__call_peaks_from_trackI (self.treat)
 
         self.info("#3 diag: call negative peak candidates")
-        negative_peak_candidates = self.__call_peaks_from_trackI (self.control, self.control.prob_aligns)
+        negative_peak_candidates = self.__call_peaks_from_trackI (self.control)
         
         self.info("#3 diag: use control data to filter peak candidates...")
         final_peaks_percent = self.__filter_w_control(peak_candidates,self.treat,self.control, ratio_treat2control)
@@ -931,7 +841,7 @@ class PeakDetect:
         self.treat.sample(percent)
         self.debug("#3 diag: after shift and merging, tags: %d" % (self.treat.total))
         self.info("#3 diag: call peak candidates")
-        peak_candidates = self.__call_peaks_from_trackI (self.treat, self.treat.prob_aligns)
+        peak_candidates = self.__call_peaks_from_trackI (self.treat)
         self.info("#3 diag: use self to calculate local lambda and  filter peak candidates...")
         final_peaks_percent = self.__filter_w_control(peak_candidates,self.treat,self.treat,1,pass_sregion=True) # bug fixed...
         return final_peaks_percent
@@ -1015,7 +925,7 @@ class PeakDetect:
         return new_peaks
 
 
-    def __align_by_EM(self, treatment, control, init_regions, treat2control_ratio, pass_sregion=False, fake_when_missing=False):
+    def __align_by_EM(self, treatment, control, init_regions, treat2control_ratio):
         """
         Align the multi reads in treatment using expectation-maximization.
         
@@ -1030,7 +940,7 @@ class PeakDetect:
         """
         # get indices and lambdas for candidate regions
         all_peak_inds, all_peak_lambdas = self.__get_all_peak_lambdas(init_regions,
-            treatment, control, treat2control_ratio, pass_sregion, fake_when_missing)
+            treatment, control, treat2control_ratio)
         # filter out non-multiread peaks and save only counts of unique reads + multi indices
         min_score = self.opt.min_score if self.opt.min_score is not None else 1e-3
         max_score = self.opt.max_score if self.opt.max_score is not None else 2e3
@@ -1038,18 +948,13 @@ class PeakDetect:
         peak_posns = {}
         show_graphs = self.opt.show_graphs
         #if show_graphs:
-        in_candidate = [False] * len(treatment.prob_aligns)  # if peak is in cand region
-        for chrom in all_peak_inds:
+        in_candidate = [] #[False] * len(treatment.prob_aligns)  # if peak is in cand region
+        for chrom in all_peak_inds.keys():
             try:
                 (ttags,tmp) = treatment.get_locations_by_chr(chrom)
+                (ttags_ind,tmp) = treatment.get_indexes_by_chr(chrom)
             except:
-                self.warn("Missing %s data, skip it..." % (chrom))
-                if fake_when_missing:
-                    ttags = [-1,]
-                    self.warn("Fake a tag at %s:%d" % (chrom,-1))
-                    tmp=[]
-                else:
-                    continue
+                continue
             for i in range(len(all_peak_inds[chrom])):
                 local_lambda = all_peak_lambdas[chrom][i]
                 peak_inds = all_peak_inds[chrom][i]
@@ -1057,13 +962,13 @@ class PeakDetect:
                 multi_inds = []
                 if chrom not in peak_posns:
                     peak_posns[chrom] = []
-                peak_posns[chrom].append((get_read_start(ttags[peak_inds[0]]),
-                                          get_read_start(ttags[peak_inds[-1]])))
+                peak_posns[chrom].append((ttags[peak_inds[0]],
+                                          ttags[peak_inds[-1]]))
                 for ind in peak_inds:
-                    if type(ttags[ind]) is tuple:
-                        multi_inds.append(ttags[ind][1])  # get the index into the prob array
+                    if ttags_ind[ind] != 0:  # a multi read
+                        multi_inds.append(ttags_ind[ind])  # get the index into the prob array
                         #if show_graphs:
-                        in_candidate[ttags[ind][1]] = True
+                        #in_candidate[ttags[ind][1]] = True
                     else:
                         unique_count += 1
                 if len(multi_inds) == 0:
@@ -1073,7 +978,7 @@ class PeakDetect:
                         final_regions[chrom] = []
                     final_regions[chrom].append((local_lambda, unique_count, multi_inds))
         print 'total_multi: ', treatment.total_multi
-        print 'total number of peaks in candidate regions:', sum(1 for inc in in_candidate if inc)
+        #print 'total number of peaks in candidate regions:', sum(1 for inc in in_candidate if inc)
         
         # for each iteration
         #if False:
@@ -1119,7 +1024,7 @@ class PeakDetect:
                     group_end = len(treatment.prob_aligns)
                 group_range = range(group_start, group_end)
                 if prior_prob_map: # posterior = map prob * enrichment
-                    enrich_vals = [0.] * group_end
+                    enrich_vals = [0.] * (group_end - group_start)
                     enrich_total = 0.
                     for j in group_range:
                         enrich_vals[j - group_start] = treatment.enrich_scores[j] * treatment.prior_aligns[j]
@@ -1256,40 +1161,39 @@ class PeakDetect:
         pyplot.close()
 
 
-    def __get_all_peak_lambdas(self, peak_info, treatment, control, treat2control_ratio, pass_sregion=False, fake_when_missing=False):
+    def __get_all_peak_lambdas(self, peak_info, treatment, control, treat2control_ratio):
         """
         from MACS: calculate the local (max) lambda for each peak.
         Also returns all tag indices within each peak
         
         """
+        pass_sregion = False
         chroms = sorted(peak_info.keys())
         all_peak_inds = {}
         all_local_lambdas = {}
-        get_t_read_prob = lambda read: 1. if type(read) is not tuple else treatment.prob_aligns[read[1]]
-        get_c_read_prob = lambda read: 1. if type(read) is not tuple else control.prob_aligns[read[1]]
+        t_prob_aligns = treatment.prob_aligns
+        c_prob_aligns = control.prob_aligns
 
         for chrom in chroms:
             peak_list = peak_info[chrom]
             try:
                 (ctags,tmp) = control.get_locations_by_chr(chrom)
+                (ctags_ind, tmp) = control.get_indexes_by_chr(chrom)
             except:
                 self.warn("Missing %s data, skip it..." % (chrom))
-                if fake_when_missing:
-                    ctags = [-1,]
-                    self.warn("Fake a tag at %s:%d" % (chrom,-1))
-                    tmp=[]
-                else:
-                    continue
+                ctags = [-1,]
+                ctags_ind = [0]
+                self.warn("Fake a tag at %s:%d" % (chrom,-1))
+                tmp=[]
             try:
                 (ttags,tmp) = treatment.get_locations_by_chr(chrom)
+                (ttags_ind, tmp) = treatment.get_indexes_by_chr(chrom)
             except:
                 self.warn("Missing %s data, skip it..." % (chrom))
-                if fake_when_missing:
-                    ttags = [-1,]
-                    self.warn("Fake a tag at %s:%d" % (chrom,-1))
-                    tmp=[]
-                else:
-                    continue
+                ttags = [-1,]
+                ttags_ind = [0]
+                self.warn("Fake a tag at %s:%d" % (chrom,-1))
+                tmp=[]
                 
             index_ctag = 0      # index for control tags
             index_ttag = 0      # index for treatment tags
@@ -1326,10 +1230,10 @@ class PeakDetect:
                     #largest = max(right_peak,right_10k,right_5k,right_1k)
         
                     while index_ctag < len_ctags:
-                        if get_read_start(ctags[index_ctag]) < left_lregion:
+                        if ctags[index_ctag] < left_lregion:
                             # go to next control tag
                             index_ctag+=1
-                        elif right_lregion < get_read_start(ctags[index_ctag])\
+                        elif right_lregion < ctags[index_ctag] \
                             or index_ctag + 1 >= len_ctags:
                             # finalize and go to next peak region
                             flag_find_ctag_locally = False
@@ -1339,8 +1243,8 @@ class PeakDetect:
                             if not flag_find_ctag_locally:
                                 flag_find_ctag_locally = True
                                 prev_index_ctag = index_ctag
-                            p = get_read_start(ctags[index_ctag])
-                            prob = get_c_read_prob(ctags[index_ctag])
+                            p = ctags[index_ctag]
+                            prob = c_prob_aligns[ctags_ind[index_ctag]]
                             if left_peak <= p <= right_peak:
                             #if peak_start <= p <= peak_end:
                                 cnum_peak += prob
@@ -1353,10 +1257,10 @@ class PeakDetect:
                     
                     inds_in_peak = []
                     while index_ttag < len_ttags:
-                        if get_read_start(ttags[index_ttag]) < left_lregion:
+                        if ttags[index_ttag] < left_lregion:
                             # go to next treatment tag
                             index_ttag+=1
-                        elif right_lregion < get_read_start(ttags[index_ttag]) \
+                        elif right_lregion < ttags[index_ttag] \
                             or index_ttag + 1 >= len_ttags:
                             # finalize and go to next peak region
                             flag_find_ttag_locally = False
@@ -1366,8 +1270,8 @@ class PeakDetect:
                             if not flag_find_ttag_locally:
                                 flag_find_ttag_locally = True
                                 prev_index_ttag = index_ttag
-                            p = get_read_start(ttags[index_ttag])
-                            prob = get_t_read_prob(ttags[index_ctag])
+                            p = ttags[index_ttag]
+                            prob = t_prob_aligns[ttags_ind[index_ttag]]
                             if left_peak <= p <= right_peak:
                             #if peak_start <= p <= peak_end:
                                 inds_in_peak.append(index_ttag)
