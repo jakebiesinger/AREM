@@ -290,7 +290,8 @@ class PeakDetect:
         if self.treat.total_multi > 0 and self.control.total_multi > 0 \
                 and not self.opt.no_EM:
             self.info("#3.5 Reset treatment alignment probabilities")
-            self.treat.reset_align_probs()
+            # temporarily undo EM by resetting to prior probs
+            self.prob_aligns, self.prior_aligns = self.prior_aligns, self.prob_aligns
             self.info("#3. Perform EM on control multi reads")
             self._align_by_EM(self.control, self.treat,
                                negative_peak_candidates,
@@ -350,9 +351,7 @@ class PeakDetect:
         one as local lambda, then calculate p-value in poisson
         distribution.
         
-        New: if clip_extra_reads, we will try to improve the p-value by clipping
-        reads from both ends of the peak. This will get rid of low-probablility
-        multi reads.
+        New: Try to refine peaks by looking for enriched subpeaks
 
         Return value type in this format:
         a dictionary
@@ -366,6 +365,9 @@ class PeakDetect:
         total = 0
         t_prob_aligns = treatment.prob_aligns
         c_prob_aligns = control.prob_aligns
+        scan_window = self.scan_window
+        lmax = max
+        lpoisson_cdf = poisson_cdf
         for chrom in chrs:
             self.debug("#3 Chromosome %s" % (chrom))
             n_chrom = 0
@@ -411,9 +413,9 @@ class PeakDetect:
                 #peak_start,peak_end,peak_length,peak_summit,peak_height,number_cpr_tags, peak_num_tags, cpr_indices = peak_list[i]
                 (peak_start,peak_end,peak_length,peak_summit,peak_height, peak_num_tags) = peak_list[i]
 
-                #window_size_4_lambda = min(self.first_lambda_region,max(peak_length,self.scan_window))
-                window_size_4_lambda = max(peak_length,self.scan_window)
-                lambda_bg = self.lambda_bg/self.scan_window*window_size_4_lambda                
+                #window_size_4_lambda = min(self.first_lambda_region,lmax(peak_length,scan_window))
+                window_size_4_lambda = lmax(peak_length,scan_window)
+                lambda_bg = self.lambda_bg/scan_window*window_size_4_lambda                
                 if self.nolambda:
                     # skip local lambda
                     print 'skipping local lambda'
@@ -431,7 +433,7 @@ class PeakDetect:
                     (cnum_sregion, cnum_lregion, cnum_peak, tnum_sregion, tnum_lregion, tnum_peak) = (0,0,0,0,0,0)
                     cnum_peak_total, tnum_peak_total = 0,0
                     #smallest = min(left_peak,left_10k,left_5k,left_1k)
-                    #largest = max(right_peak,right_10k,right_5k,right_1k)
+                    #largest = lmax(right_peak,right_10k,right_5k,right_1k)
 
                     #print 'index_ctag: %s, ctags[j] %s' % (index_ctag, ctags[index_ctag])
                     while index_ctag < len_ctags:
@@ -461,7 +463,8 @@ class PeakDetect:
                                 cnum_lregion += prob
                             index_ctag += 1 # go to next tag
 
-                    inds_in_peak = []
+                    inds_in_peak = array('i',[])
+                    inds_in_peak_append = inds_in_peak.append
                     while index_ttag < len_ttags:
                         if ttags[index_ttag] < left_lregion:
                             # go to next treatment tag
@@ -482,7 +485,7 @@ class PeakDetect:
                             #if peak_start <= p <= peak_end:  # Jake-- again, seems this would be more accurate...
                                 tnum_peak += prob
                                 tnum_peak_total += 1
-                                inds_in_peak.append(index_ttag)
+                                inds_in_peak_append(index_ttag)
                             if left_sregion <= p <= right_sregion:
                                 tnum_sregion += prob
                                 tnum_lregion += prob
@@ -501,12 +504,12 @@ class PeakDetect:
 
                     if pass_sregion:
                         # for experiment w/o control, peak region lambda and sregion region lambda are ignored!
-                        local_lambda = max(lambda_bg,tlambda_lregion)
+                        local_lambda = lmax(lambda_bg,tlambda_lregion)
                     else:
                         # for experiment w/ control
-                        local_lambda = max(lambda_bg,clambda_peak,clambda_lregion,clambda_sregion)
+                        local_lambda = lmax(lambda_bg,clambda_peak,clambda_lregion,clambda_sregion)
 
-                p_tmp = poisson_cdf(tlambda_peak,local_lambda,lower=False)
+                p_tmp = lpoisson_cdf(tlambda_peak,local_lambda,lower=False)
                 if p_tmp <= 0:
                     peak_pvalue = 3100
                 else:
@@ -522,57 +525,64 @@ class PeakDetect:
                     # local minima, we always look at least scanwindow bases away
                     # get reads within first scanwindow
                     cpr_tags = [ttags[inds_in_peak[0]]]
+                    cpr_tags_append = cpr_tags.append
                     cpr_probs = [t_prob_aligns[ttags_ind[inds_in_peak[0]]]]
+                    cpr_probs_append = cpr_probs.append
+                    cpr_probs_extend = cpr_probs.extend
                     cpr_mass = cpr_probs[-1]
-                    j = 1
+                    middle_probs = []
+                    middle_probs_append = middle_probs.append
+                    j = 1  # right-most index we are considering
+                    
+                    # start with a scan_window slice of reads
                     while j < len(inds_in_peak):
                         cur_dist = ttags[inds_in_peak[j]] - cpr_tags[0]
-                        if cur_dist <= self.scan_window: # always look scan_window away
-                            cpr_tags.append(ttags[inds_in_peak[j]])
-                            cpr_probs.append(t_prob_aligns[ttags_ind[inds_in_peak[j]]])
+                        if cur_dist <= scan_window: # always look scan_window away
+                            cpr_tags_append(ttags[inds_in_peak[j]])
+                            cpr_probs_append(t_prob_aligns[ttags_ind[inds_in_peak[j]]])
                             cpr_mass += cpr_probs[-1]
                             j += 1
                         else:
                             break
-                    # add reads to current peak if they improve the enrichment
                     cpr_width = cpr_tags[-1] - cpr_tags[0]
-                    lambda_width = max(cpr_width, self.scan_window)
-                    cpr_pval = poisson_cdf(cpr_mass,local_lambda * lambda_width / window_size_4_lambda,lower=False)
-                    middle_probs = []
-                    #print 'on first', cpr_width, cpr_mass, cpr_pval, cpr_tags
-                    #print j, len(inds_in_peak)
+                    lambda_width = lmax(cpr_width, scan_window)
+                    cpr_pval = lpoisson_cdf(cpr_mass,local_lambda * lambda_width / window_size_4_lambda,lower=False)
+                    
+                    # add additional reads to current peak if they improve the enrichment
+                    # but always look at reads within scan_window bases away
                     while j < len(inds_in_peak):
-                        #print cpr_width, cpr_mass, cpr_pval, cpr_tags
                         test_posn = ttags[inds_in_peak[j]]
                         cur_dist = test_posn - cpr_tags[-1]
-                        if cur_dist <= self.scan_window:
+                        if cur_dist <= scan_window:
                             test_width = test_posn - cpr_tags[0]
-                            lambda_width = max(test_width, self.scan_window)
+                            lambda_width = lmax(test_width, scan_window)
                             test_mass = cpr_mass + sum(middle_probs) + t_prob_aligns[ttags_ind[inds_in_peak[j]]]
-                            test_pval = poisson_cdf(test_mass,local_lambda * lambda_width / window_size_4_lambda,lower=False)
-                            #print 'vs.', test_width, test_mass, test_pval
+                            test_pval = lpoisson_cdf(test_mass,local_lambda * lambda_width / window_size_4_lambda,lower=False)
                             if test_pval < cpr_pval:
                                 # enrichment improved-- add the tag
-                                cpr_tags.append(ttags[inds_in_peak[j]])
-                                cpr_probs.extend(middle_probs)
-                                cpr_probs.append(t_prob_aligns[ttags_ind[inds_in_peak[j]]])
+                                cpr_tags_append(ttags[inds_in_peak[j]])
+                                cpr_probs_extend(middle_probs)
+                                cpr_probs_append(t_prob_aligns[ttags_ind[inds_in_peak[j]]])
                                 cpr_mass = test_mass
                                 cpr_width = test_width
                                 cpr_pval = test_pval
-                                middle_probs = []
+                                del middle_probs[:]
                                 #print 'accepted'
                             else:
-                                middle_probs.append(t_prob_aligns[ttags_ind[inds_in_peak[j]]])
+                                # ignore the tag for now, include it when
+                                # considering adjacent reads
+                                middle_probs_append(t_prob_aligns[ttags_ind[inds_in_peak[j]]])
                                 #print 'denied'
                             j += 1
+
+                        # the next read is too far away so call previous region a peak
                         else:
-                            # call previous region as a peak
                             if cpr_pval <= 0:
                                 cpr_pval = 3100
                             else:
                                 cpr_pval = math_log10(cpr_pval) * -10
-                            #print 'calling peak!', cpr_pval, '>', self.pvalue, ' ?'
                             if cpr_pval > self.pvalue:
+                                # passes p-value threshold set by user
                                 p_start, p_end, p_length, p_summit, p_height = self._tags_call_peak(cpr_tags, cpr_probs)
                                 cpr_enrich = p_height / local_lambda * window_size_4_lambda / self.d
                                 final_peak_info[chrom].append((p_start, p_end, p_length, p_summit, p_height, cpr_mass, cpr_pval, cpr_enrich))
@@ -580,31 +590,32 @@ class PeakDetect:
                                 total += 1
 
                             # reset cpr
-                            cpr_tags = [ttags[inds_in_peak[j]]]
-                            cpr_probs = [t_prob_aligns[ttags_ind[inds_in_peak[j]]]]
+                            del cpr_tags[:], cpr_probs[:], middle_probs[:]
+                            cpr_tags_append(ttags[inds_in_peak[j]])
+                            cpr_probs_append(t_prob_aligns[ttags_ind[inds_in_peak[j]]])
                             cpr_mass = cpr_probs[-1]
-                            middle_probs = []
+                            # grab a new scan_window slice
                             while j < len(inds_in_peak):
                                 cur_dist = ttags[inds_in_peak[j]] - cpr_tags[0]
-                                if cur_dist <= self.scan_window:
-                                    cpr_tags.append(ttags[inds_in_peak[j]])
-                                    cpr_probs.append(t_prob_aligns[ttags_ind[inds_in_peak[j]]])
+                                if cur_dist <= scan_window:
+                                    cpr_tags_append(ttags[inds_in_peak[j]])
+                                    cpr_probs_append(t_prob_aligns[ttags_ind[inds_in_peak[j]]])
                                     cpr_mass += cpr_probs[-1]
                                     j += 1
                                 else:
                                     break
                             cpr_width = cpr_tags[-1] - cpr_tags[0]
                             if cpr_width > 0:
-                                lambda_width = max(cpr_width, self.scan_window)
-                                cpr_pval = poisson_cdf(cpr_mass,local_lambda * lambda_width / window_size_4_lambda,lower=False)
+                                lambda_width = lmax(cpr_width, scan_window)
+                                cpr_pval = lpoisson_cdf(cpr_mass,local_lambda * lambda_width / window_size_4_lambda,lower=False)
                             else:
                                 cpr_pval = 1.
                         # clip last tag from the left if it improves enrichment
                         if len(cpr_tags) > 3:
                             test_width = cpr_tags[-1] - cpr_tags[1]
-                            test_mass = cpr_mass - cpr_probs[0]  # TODO: no longer indexing using tuples-- this line borked
-                            lambda_width = max(test_width, self.scan_window)
-                            test_pval = poisson_cdf(test_mass,local_lambda * lambda_width / window_size_4_lambda,lower=False)
+                            test_mass = cpr_mass - cpr_probs[0]
+                            lambda_width = lmax(test_width, scan_window)
+                            test_pval = lpoisson_cdf(test_mass,local_lambda * lambda_width / window_size_4_lambda,lower=False)
                             if test_pval < cpr_pval:
                                 # enrichment improved-- add the tag
                                 cpr_tags.pop(0)
@@ -966,7 +977,8 @@ class PeakDetect:
         t_prior_aligns = treatment.prior_aligns
         t_enrich_scores = treatment.enrich_scores
         t_group_starts = treatment.group_starts
-        
+        lmax = max
+        lpoisson_cdf = poisson_cdf
         if show_graphs is None:
             show_graphs = self.opt.show_graphs  # use cmd line param unless overridden
         #if show_graphs:
@@ -1028,12 +1040,12 @@ class PeakDetect:
             for chrom in sorted(final_regions.keys()):
                 for local_lambda, unique_mass, multi_inds in final_regions[chrom]:
                     multi_mass = sum(t_prob_aligns[i] for i in multi_inds)
-                    pvalue = poisson_cdf(multi_mass + unique_mass, local_lambda,
+                    pvalue = lpoisson_cdf(multi_mass + unique_mass, local_lambda,
                                          lower=False)
                     if pvalue <= 0:
                         score = max_score
                     else:
-                        score = max(-math_log10(pvalue), min_score)
+                        score = lmax(-math_log10(pvalue), min_score)
                         score = min(score, max_score)
                     for i in multi_inds:
                         t_enrich_scores[i] = score

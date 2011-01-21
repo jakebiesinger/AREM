@@ -283,13 +283,6 @@ class FWTrackII:
         self._locations[chromosome][strand].append(fiveendpos)
         self._indexes[chromosome][strand].append(index)
     
-    def reset_align_probs (self):
-        """Reset alignment probabilities to their original state.
-        
-        """
-        del self.prob_aligns
-        self.prob_aligns = self.prior_aligns[:]
-    
     def get_locations_by_chr (self, chromosome):
         """Return a tuple of two lists of locations for certain chromosome.
 
