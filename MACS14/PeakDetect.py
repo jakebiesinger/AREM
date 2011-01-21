@@ -655,7 +655,6 @@ class PeakDetect:
             self.debug("#3 Chromosome %s" % (chrom))
             n_chrom = 0
             peak_candidates[chrom] = []
-            assay = trackI.get_locations_by_chr(chrom)
             (tags,tmp) = trackI.get_locations_by_chr(chrom)
             (tags_ind, tmp) = trackI.get_indexes_by_chr(chrom)
             len_t = len(tags)

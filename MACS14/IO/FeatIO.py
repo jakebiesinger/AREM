@@ -348,26 +348,26 @@ class FWTrackII:
         """
         if not use_numpy:
             # argsort
-            #locs = self._locations[k][0]
-            #indexes = self._indexes[k][0]
-            #sort_order = self.argsort(locs)
-            #self._locations[k][0] = array('i', (locs[i] for i in sort_order))
-            #self._indexes[k][0] = array('i', (indexes[i] for i in sort_order))
-            #
-            #locs = self._locations[k][1]
-            #indexes = self._indexes[k][1]
-            #sort_order = self.argsort(locs)
-            #self._locations[k][1] = array('i', (locs[i] for i in sort_order))
-            #self._indexes[k][1] = array('i', (indexes[i] for i in sort_order))
+            locs = self._locations[k][0]
+            indexes = self._indexes[k][0]
+            sort_order = self.argsort(locs)
+            self._locations[k][0] = array('i', (locs[i] for i in sort_order))
+            self._indexes[k][0] = array('i', (indexes[i] for i in sort_order))
             
-            # zip, sort, unzip
-            # zip location, index; then sort the tuple by location, then unzip back into place
-            g0 = itemgetter(0)
-            (tmparrayplus,tmparrayminus) = self.get_locations_indexes_by_chr(k)
-            tmparrayplus.sort(key=g0)
-            self._locations[k][0], self._indexes[k][0] = map(list, zip(*tmparrayplus))
-            tmparrayminus.sort(key=g0)
-            self._locations[k][1], self._indexes[k][1] = map(list, zip(*tmparrayminus))
+            locs = self._locations[k][1]
+            indexes = self._indexes[k][1]
+            sort_order = self.argsort(locs)
+            self._locations[k][1] = array('i', (locs[i] for i in sort_order))
+            self._indexes[k][1] = array('i', (indexes[i] for i in sort_order))
+            
+            ## zip, sort, unzip
+            ## zip location, index; then sort the tuple by location, then unzip back into place
+            #g0 = itemgetter(0)
+            #(tmparrayplus,tmparrayminus) = self.get_locations_indexes_by_chr(k)
+            #tmparrayplus.sort(key=g0)
+            #self._locations[k][0], self._indexes[k][0] = map(list, zip(*tmparrayplus))
+            #tmparrayminus.sort(key=g0)
+            #self._locations[k][1], self._indexes[k][1] = map(list, zip(*tmparrayminus))
         else:
             if type(self._locations[k][0]) is numpy.ndarray:  # not replaced with array.array
                 # "together" already built for this data
