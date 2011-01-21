@@ -651,36 +651,45 @@ class PeakDetect:
         self.debug("#3 search peak condidates...")
         chrs = trackI.get_chr_names()
         total = 0
+        min_tags = self.min_tags
+        scan_window = self.scan_window
         for chrom in chrs:
             self.debug("#3 Chromosome %s" % (chrom))
             n_chrom = 0
             peak_candidates[chrom] = []
+            peak_cand_append = peak_candidates[chrom].append
             (tags,tmp) = trackI.get_locations_by_chr(chrom)
             (tags_ind, tmp) = trackI.get_indexes_by_chr(chrom)
             len_t = len(tags)
             cpr_tags = []       # Candidate Peak Region tags
-            cpr_tags.extend(tags[:self.min_tags-1])
-            number_cpr_tags = self.min_tags-1
-            p = self.min_tags-1 # Next Tag Index
-            cpr_probs = [prob_aligns[tags_ind[i]] for i in range(self.min_tags-1)]
+            cpr_tags_append = cpr_tags.append
+            cpr_tags_pop = cpr_tags.pop
+            cpr_tags.extend(tags[:min_tags-1])
+            number_cpr_tags = min_tags-1
+            p = min_tags-1 # Next Tag Index
+            cpr_probs = [prob_aligns[tags_ind[i]] for i in xrange(min_tags-1)]
+            cpr_probs_append = cpr_probs.append
+            cpr_probs_pop = cpr_probs.pop
             #cpr_indices = range(p+1)
             while p < len_t:
-                if number_cpr_tags >= self.min_tags:
-                    if tags[p] - cpr_tags[-1*self.min_tags+1] <= self.scan_window:
+                if number_cpr_tags >= min_tags:
+                    if tags[p] - cpr_tags[-min_tags+1] <= scan_window:
                         # add next tag, if the new tag is less than self.scan_window away from previous no. self.min_tags tag
-                        cpr_tags.append(tags[p])
-                        cpr_probs.append(prob_aligns[tags_ind[p]])
+                        cpr_tags_append(tags[p])
+                        cpr_probs_append(prob_aligns[tags_ind[p]])
                         #cpr_indices.append(p)
                         number_cpr_tags += 1
                         p+=1
                     else:
                         # candidate peak region is ready, call peak...
-                        (peak_start,peak_end,peak_length,peak_summit,peak_height) = self._tags_call_peak (cpr_tags, cpr_probs)
+                        #(peak_start,peak_end,peak_length,peak_summit,peak_height) = self._tags_call_peak (cpr_tags, cpr_probs)
+                        peak_values = self._tags_call_peak (cpr_tags, cpr_probs)
                         peak_prob = sum(cpr_probs)
-                        #peak_candidates[chrom].append((peak_start,peak_end,peak_length,peak_summit,peak_height,number_cpr_tags, peak_prob, cpr_indices))
-                        peak_candidates[chrom].append((peak_start,peak_end,peak_length,peak_summit,peak_height,peak_prob))
-                        cpr_tags = [tags[p]] # reset
-                        cpr_probs = [prob_aligns[tags_ind[p]]]
+                        peak_cand_append(peak_values +(peak_prob,))
+                        del cpr_tags[:]  # reset, but keep same variable
+                        del cpr_probs[:]
+                        cpr_tags_append(tags[p])
+                        cpr_probs_append(prob_aligns[tags_ind[p]])
                         #cpr_indices = [p]
                         number_cpr_tags = 1
                         total += 1
@@ -690,13 +699,13 @@ class PeakDetect:
                     # add next tag, but if the first one in cpr_tags
                     # is more than self.scan_window away from this new
                     # tag, remove the first one from the list
-                    if tags[p] - cpr_tags[0] >= self.scan_window:
-                        cpr_tags.pop(0)
+                    if tags[p] - cpr_tags[0] >= scan_window:
+                        cpr_tags_pop(0)
+                        cpr_probs_pop(0)
                         number_cpr_tags -= 1
-                        cpr_probs.pop(0)
                         #cpr_indices.pop(0)
-                    cpr_tags.append(tags[p])
-                    cpr_probs.append(prob_aligns[tags_ind[p]])
+                    cpr_tags_append(tags[p])
+                    cpr_probs_append(prob_aligns[tags_ind[p]])
                     #cpr_indices.append(p)
                     number_cpr_tags += 1
                     p+=1
@@ -736,17 +745,15 @@ class PeakDetect:
 
         """
         chrs = trackI.get_chr_names()
+        shift_size = self.shift_size
         for chrom in chrs:
-            tags = trackI.get_locations_by_chr(chrom)
+            plus_tags, minus_tags = trackI.get_locations_by_chr(chrom)
             # plus
-            for i in range(len(tags[0])):
-                t = tags[0][i]
-                tags[0][i] += self.shift_size
+            for i in xrange(len(plus_tags)):
+                plus_tags[i] += shift_size
             # minus
-            for i in range(len(tags[1])):
-                t = tags[1][i]
-                tags[1][i] -= self.shift_size
-        return
+            for i in xrange(len(tags[1])):
+                minus_tags[i] -= shift_size
     
     def _build_wigtrackI (self, trackI, space=10):
         """Shift trackI then build a wigTrackI object.
@@ -947,6 +954,7 @@ class PeakDetect:
         
         """
         # get indices and lambdas for candidate regions
+        self.info('#3.5 Gathering background lambdas')
         all_peak_inds, all_peak_lambdas = self._get_all_peak_lambdas(init_regions,
             treatment, control, treat2control_ratio)
         # filter out non-multiread peaks and save only counts of unique reads + multi indices
@@ -954,6 +962,11 @@ class PeakDetect:
         max_score = self.opt.max_score if self.opt.max_score is not None else 2e3
         final_regions = {}
         peak_posns = {}
+        t_prob_aligns = treatment.prob_aligns
+        t_prior_aligns = treatment.prior_aligns
+        t_enrich_scores = treatment.enrich_scores
+        t_group_starts = treatment.group_starts
+        
         if show_graphs is None:
             show_graphs = self.opt.show_graphs  # use cmd line param unless overridden
         #if show_graphs:
@@ -964,7 +977,7 @@ class PeakDetect:
                 (ttags_ind,tmp) = treatment.get_indexes_by_chr(chrom)
             except:
                 continue
-            for i in range(len(all_peak_inds[chrom])):
+            for i in xrange(len(all_peak_inds[chrom])):
                 local_lambda = all_peak_lambdas[chrom][i]
                 peak_inds = all_peak_inds[chrom][i]
                 unique_count = 0
@@ -998,22 +1011,23 @@ class PeakDetect:
         for iteration in itertools_count(1):  # until convergence
             cur_entropy = list(self._get_read_entropy(treatment))
             if prev_entropy is not None:  # check for convergence
-                denom = sum(ent ** 2 for ent in cur_entropy)
+                denom = sum(ent ** 2. for ent in cur_entropy)
                 if denom == 0.0:
                     difference = 0.0
                 else:
-                    difference = sum([(cur_entropy[i] - prev_entropy[i])**2 
+                    difference = sum([(cur_entropy[i] - prev_entropy[i])**2. 
                         for i in xrange(len(cur_entropy))])
                     difference = difference / denom
                 self.info("Entropy difference is %s" % difference)
                 if difference < self.opt.min_change:
                     self.info("Convergence criteria reached after %s iterations!" % iteration)
                     break
+
             self.info("#3.%s iterate AREM" % iteration)
             # calculate the enrichment of each candidate peak
             for chrom in sorted(final_regions.keys()):
                 for local_lambda, unique_mass, multi_inds in final_regions[chrom]:
-                    multi_mass = sum(treatment.prob_aligns[i] for i in multi_inds)
+                    multi_mass = sum(t_prob_aligns[i] for i in multi_inds)
                     pvalue = poisson_cdf(multi_mass + unique_mass, local_lambda,
                                          lower=False)
                     if pvalue <= 0:
@@ -1022,27 +1036,29 @@ class PeakDetect:
                         score = max(-math_log10(pvalue), min_score)
                         score = min(score, max_score)
                     for i in multi_inds:
-                        treatment.enrich_scores[i] = score
+                        t_enrich_scores[i] = score
+
             # normalize the alignment probabilities for all multireads
-            for i in range(len(treatment.group_starts)):
-                group_start = treatment.group_starts[i]
-                if i < len(treatment.group_starts) - 1:
-                    group_end = treatment.group_starts[i+1]
+            for i in range(len(t_group_starts)):
+                group_start = t_group_starts[i]
+                if i < len(t_group_starts) - 1:
+                    group_end = t_group_starts[i+1]
                 else:
-                    group_end = len(treatment.prob_aligns)
+                    group_end = len(t_group_starts)
                 group_range = range(group_start, group_end)
                 if prior_prob_map: # posterior = map prob * enrichment
                     enrich_vals = [0.] * (group_end - group_start)
                     enrich_total = 0.
                     for j in group_range:
-                        enrich_vals[j - group_start] = treatment.enrich_scores[j] * treatment.prior_aligns[j]
-                        enrich_total += enrich_vals[j - group_start]
+                        enr_val = t_enrich_scores[j] * t_prior_aligns[j]
+                        enrich_vals[j - group_start] = enr_val
+                        enrich_total += enr_val
                     for j in group_range:
-                        treatment.prob_aligns[j] = enrich_vals[j-group_start] / enrich_total
+                        t_prob_aligns[j] = enrich_vals[j-group_start] / enrich_total
                 else:
-                    enrich_total = sum([treatment.enrich_scores[j] for j in group_range])
+                    enrich_total = sum([t_enrich_scores[j] for j in group_range])
                     for j in group_range:
-                        treatment.prob_aligns[j] = treatment.enrich_scores[j] / enrich_total
+                        t_prob_aligns[j] = t_enrich_scores[j] / enrich_total
             if show_graphs:
                 self._plot_EM_state(iteration, final_regions, peak_posns, in_candidate)
             prev_entropy = cur_entropy
@@ -1073,7 +1089,9 @@ class PeakDetect:
 
     def _get_read_entropy(self, treatment, normed=True, minScore=None):
         'generator for entropy in read alignments'
-        for i in range(len(treatment.group_starts)):
+        t_prob_aligns = treatment.prob_aligns
+        t_enrich_score = treatment.enrich_scores
+        for i in xrange(len(treatment.group_starts)):
             group_start = treatment.group_starts[i]
             if i < len(treatment.group_starts) - 1:
                 group_end = treatment.group_starts[i+1]
@@ -1081,9 +1099,9 @@ class PeakDetect:
                 group_end = len(treatment.prob_aligns)
             group_range = range(group_start, group_end)
             if minScore is None:
-                probs = [treatment.prob_aligns[j] for j in group_range]
+                probs = [t_prob_aligns[j] for j in group_range]
             else:
-                scores = [treatment.enrichScore[j] - minScore for j in group_range]
+                scores = [t_enrich_scores[j] - minScore for j in group_range]
                 scoreTotal = sum(scores)
                 if scoreTotal < 0.:
                     scoreTotal = 0.
@@ -1092,7 +1110,7 @@ class PeakDetect:
                     probs = [score / scoreTotal for score in scores]
                 else:
                     probs = [1./len(group_range)] * len(group_range)
-            entropies = [p * math_log10(p) if p > 0 else 0. for p in probs]
+            entropies = [p * math_log10(p) if p > 0. else 0. for p in probs]
             if normed:
                 yield -sum(entropies) / math_log10(len(group_range))
             else:
