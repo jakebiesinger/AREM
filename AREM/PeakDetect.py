@@ -1,39 +1,49 @@
-# Time-stamp: <2010-08-01 22:58:49 Tao Liu>
+# Time-stamp: <2011-01-20 18:21:42 Jake Biesinger>
 
-"""Module Description
+"""Description:
 
-Copyright (c) 2008 Yong Zhang, Tao Liu <taoliu@jimmy.harvard.edu>
+Copyright (c) 2008,2009,2010 Yong Zhang, Tao Liu <taoliu@jimmy.harvard.edu>
 
 This code is free software; you can redistribute it and/or modify it
 under the terms of the Artistic License (see the file COPYING included
 with the distribution).
 
-@status:  experimental
+@status: beta
 @version: $Revision$
-@author:  Yong Zhang, Tao Liu
-@contact: taoliu@jimmy.harvard.edu
+@originalauthor:  Yong Zhang, Tao Liu
+@originalcontact: taoliu@jimmy.harvard.edu
+
+Modifications to probabilistically align reads to regions with highest
+enrichment performed by Jacob Biesinger. Repackaged as "AREM" in accordance
+with copyright restrictions.
+
+@author: Biesinger, W Jacob B
+@contact: jake.biesinger@gmail.com
+
+
+Changes to this file since original release of MACS 1.4 (summer wishes):
+  December/January 2011
+    * Updated names (AREM, not MACS14)
+    * Added align_by_EM, incorporated it into call_peaks_w_control
+    * Added diagnostic plots for EM steps
+    
 """
+
 import os
 from math import log10 as math_log10
 from array import array
 from itertools import count as itertools_count, izip as itertools_izip
 
-try:
-    import numpy
-    use_numpy = True
-except ImportError:
-    use_numpy = False
-
-from MACS14.OutputWriter import zwig_write
-from MACS14.IO.FeatIO import PeakIO,WigTrackI,BinKeeperI
-from MACS14.Prob import poisson_cdf,poisson_cdf_inv
-from MACS14.Constants import *
+from AREM.OutputWriter import zwig_write
+from AREM.IO.FeatIO import PeakIO,WigTrackI,BinKeeperI
+from AREM.Prob import poisson_cdf,poisson_cdf_inv
+from AREM.Constants import *
 
 class PeakDetect:
     """Class to do the peak calling.
 
     e.g:
-    >>> from MACS14.PeakDetect import PeakDetect
+    >>> from AREM.PeakDetect import PeakDetect
     >>> pd = PeakDetect(treat=treatdata, control=controldata, pvalue=pvalue_cutoff, d=100, scan_window=200, gsize=3000000000)
     >>> pd.call_peaks()
     >>> print pd.toxls()
@@ -156,7 +166,7 @@ class PeakDetect:
         for chrom in chrs:
             for peak in self.peaks[chrom]:
                 n += 1
-                text+= "%s\t%d\t%d\tMACS_peak_%d\t%.2f\n" % (chrom,peak[0],peak[1],n,peak[6])
+                text+= "%s\t%d\t%d\tAREM_peak_%d\t%.2f\n" % (chrom,peak[0],peak[1],n,peak[6])
         return text
 
     def summitsToBED (self):
@@ -167,7 +177,7 @@ class PeakDetect:
         for chrom in chrs:
             for peak in self.peaks[chrom]:
                 n += 1
-                text+= "%s\t%d\t%d\tMACS_peak_%d\t%.2f\n" % (chrom,peak[3]-1,peak[3],n,peak[4])
+                text+= "%s\t%d\t%d\tAREM_peak_%d\t%.2f\n" % (chrom,peak[3]-1,peak[3],n,peak[4])
         return text
 
     def _add_fdr (self, final, negative): 
@@ -291,7 +301,7 @@ class PeakDetect:
                 and not self.opt.no_EM:
             self.info("#3.5 Reset treatment alignment probabilities")
             # temporarily undo EM by resetting to prior probs
-            self.prob_aligns, self.prior_aligns = self.prior_aligns, self.prob_aligns
+            self.treat.prob_aligns, self.treat.prior_aligns = self.treat.prior_aligns, self.treat.prob_aligns
             self.info("#3. Perform EM on control multi reads")
             self._align_by_EM(self.control, self.treat,
                                negative_peak_candidates,
@@ -763,7 +773,7 @@ class PeakDetect:
             for i in xrange(len(plus_tags)):
                 plus_tags[i] += shift_size
             # minus
-            for i in xrange(len(tags[1])):
+            for i in xrange(len(minus_tags)):
                 minus_tags[i] -= shift_size
     
     def _build_wigtrackI (self, trackI, space=10):

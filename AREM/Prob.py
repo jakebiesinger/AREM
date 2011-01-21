@@ -1,19 +1,29 @@
 # Time-stamp: <2009-08-28 16:51:09 Tao Liu>
 
-"""Module Description
+"""Description:
 
-Copyright (c) 2008 Tao Liu <taoliu@jimmy.harvard.edu>
+Copyright (c) 2008,2009,2010 Yong Zhang, Tao Liu <taoliu@jimmy.harvard.edu>
 
 This code is free software; you can redistribute it and/or modify it
-under the terms of the BSD License (see the file COPYING included with
-the distribution).
+under the terms of the Artistic License (see the file COPYING included
+with the distribution).
 
-@status:  experimental
+@status: beta
 @version: $Revision$
-@author:  Hyunjin Gene Shin, Tao Liu
-@contact: taoliu@jimmy.harvard.edu
-"""
+@originalauthor:  Yong Zhang, Tao Liu
+@originalcontact: taoliu@jimmy.harvard.edu
 
+Modifications to probabilistically align reads to regions with highest
+enrichment performed by Jacob Biesinger. Repackaged as "AREM" in accordance
+with copyright restrictions.
+
+@author: Biesinger, W Jacob B
+@contact: jake.biesinger@gmail.com
+
+Changes to this file since original release of MACS 1.4 (summer wishes):
+  December/January 2011
+    * Memoized poisson cdf
+"""
 # ------------------------------------
 # python modules
 # ------------------------------------

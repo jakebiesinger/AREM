@@ -1,3 +1,52 @@
+2011-01-20 Jake Biesinger <jake.biesinger@gmail.com>
+	AREM version 1.0, based on MACS version 1.4.0beta (summer wishes)
+	
+	This version introduces some major modifications to MACS, including new
+	packaging as ``AREM'': Aligning Reads By Expectation-Maximization. Most
+	importantly, we've added functionality to iteratively align reads with
+	ambiguous mappings.
+	
+	* New Features
+	
+	** Aligning Reads by Expectation-Maximization
+	
+	After the tag shift and candidate peak calling phases, multi-reads are
+	iteratively aligned. Regions that are enriched (vs. control) are
+	considered more likely to be the true genomic source of the multi-reads.
+	The method also takes mapping qualities into account.
+	
+	** Multi-reads: accepted formats
+	
+	SAM, BAM, and BOWTIE formats recognize multi-reads (several alignments
+	for the same read). To be grouped properly, the tag file must be
+	sorted by tag name. We've tested using up to 80 alignments per read.
+	
+	** Multi-reads: quality scores
+	
+	MAPQ scores will be used directly (if provided by the aligner, e.g., MAQ)
+	or calculated based on sequencing read quality and mismatch info. Also,
+	there is an option to ignore MAPQ entirely, so that alignment probabilities
+	are based solely on the relative enrichment of the possible alignments.
+	
+	** Multi-reads: chooose, reject, no EM
+	
+	Options to choose one of the set of possible multi-reads at random, throw
+	all multi-reads out altogether, or split the alignment probability
+	uniformly across all reads and do not perform EM.
+	
+	** Poisson scoring function for decimal values
+	
+	To deal with real-valued read probabilities, we use a linear interpolation
+	of the (discrete) poisson CDF. 
+	
+	** "Smooth Greedy" peak refinement
+	
+	Candidate peaks regions are inspected and an attempt at identifying
+	enriched subpeaks is made. Reads are added to the subpeak only if they
+	improve the enrichment p-value.  This should lead to a lower FDR, better
+	splitting of subpeaks, and peaks with higher resolution.
+	
+
 2010-09-01  Tao Liu  <taoliu@jimmy.harvard.edu>
 	Version 1.4.0beta (summer wishes)
 

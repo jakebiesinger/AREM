@@ -1,19 +1,19 @@
-INSTALL Guide For MACS
-Time-stamp: <2010-09-01 17:04:09 Tao Liu>
+INSTALL Guide For AREM
+Time-stamp: <2011-01-20 18:21:42 Jake Biesinger>
 
 Please check the following instructions to complete your installation.
 
 * Prerequisite
 
-Python version must be equal to 2.6 or 2.7 to run MACS. We recommend
+Python version must be equal to 2.6 or 2.7 to run AREM. We recommend
 using the version 2.6.5.
 
 * Install from source
 
-MACS uses Python's distutils tools for source installations. To
-install a source distribution of MACS, unpack the distribution tarball
+AREM uses Python's distutils tools for source installations. To
+install a source distribution of AREM, unpack the distribution tarball
 and open up a command terminal. Go to the directory where you unpacked
-MACS, and simply run the install script :
+AREM, and simply run the install script :
 
 $ python setup.py install
 
@@ -46,8 +46,8 @@ value PREFIX/lib/pythonX.Y/site-packages to your existing
 PYTHONPATH. In this value, X.Y stands for the major–minor version of
 Python you are using (such as 2.4 or 2.5 ; you can find this with
 sys.version[:3] from a Python command line). PREFIX is the install
-prefix where you installed MACS. If you did not specify a prefix on
-the command line, MACS will be installed using Python's sys.prefix
+prefix where you installed AREM. If you did not specify a prefix on
+the command line, AREM will be installed using Python's sys.prefix
 value.
 
 On Linux, using bash, I include the new value in my PYTHONPATH by
@@ -63,7 +63,7 @@ already.
 ** PATH
 
 Just like your PYTHONPATH, you'll also need to add a new value to your
-PATH environment variable so that you can use the MACS command line
+PATH environment variable so that you can use the AREM command line
 directly. Unlike the PYTHONPATH value, however, this time you'll need
 to add PREFIX/bin to your PATH environment variable. The process for
 updating this is the same as described above for the PYTHONPATH
@@ -78,7 +78,7 @@ Please go to it's main site
 
 * About GSL package
 
-From MACS version 1.2, I have removed GSL -- GNU Scientific Library,
+From AREM version 1.2, I have removed GSL -- GNU Scientific Library,
 from the distribution.
 
 

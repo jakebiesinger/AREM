@@ -1,4 +1,4 @@
-MACS_VERSION = "1.4.0beta"
+AREM_VERSION = "AREM 1.0 Initial Release based on MACS 1.4 (summer wishes)"
 MAX_PAIRNUM = 1000
 MAX_LAMBDA  = 100000
 FESTEP      = 20
@@ -30,6 +30,8 @@ else:
     raise Exception("FBYTE4 type cannot be determined!")
 
 def breakpoint():
+    """Drop-in debugger, preferring ipython pdb.
+    """
     try:
         import ipdb as pdb
     except ImportError:

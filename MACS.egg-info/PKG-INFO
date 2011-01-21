@@ -1,10 +1,10 @@
 Metadata-Version: 1.0
-Name: MACS
-Version: 1.4.0beta
-Summary: Model Based Analysis for ChIP-Seq data
-Home-page: http://liulab.dfci.harvard.edu/MACS/
-Author: Yong Zhang; Tao (Foo) Liu
-Author-email: zy@jimmy.harvard.edu; taoliu@jimmy.harvard.edu
+Name: AREM
+Version: "AREM 1.0 Initial Release based on MACS 1.4 (summer wishes)"
+Summary: Aligning Reads by Expectation-Maximization. Based on MACS (Model Based Analysis for ChIP-Seq data)
+Home-page: http://http://cbcl.ics.uci.edu/CompBioLab/index.php/AREM
+Author: AREM -- Jacob Biesinger; MACS -- Yong Zhang; Tao (Foo) Liu
+Author-email: jake.biesinger@gmail.com;  zy@jimmy.harvard.edu; taoliu@jimmy.harvard.edu
 License: UNKNOWN
 Description: UNKNOWN
 Platform: UNKNOWN

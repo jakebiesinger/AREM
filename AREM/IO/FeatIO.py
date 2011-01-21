@@ -1,17 +1,31 @@
-# Time-stamp: <2010-07-14 23:07:44 Tao Liu>
+# Time-stamp: <2011-01-20 18:21:42 Jake Biesinger>
 
-"""Module for Feature IO classes.
+"""Description:
 
-Copyright (c) 2010 Tao Liu <taoliu@jimmy.harvard.edu>
+Copyright (c) 2008,2009,2010 Yong Zhang, Tao Liu <taoliu@jimmy.harvard.edu>
 
 This code is free software; you can redistribute it and/or modify it
 under the terms of the Artistic License (see the file COPYING included
 with the distribution).
 
-@status:  experimental
+@status: beta
 @version: $Revision$
-@author:  Tao Liu
-@contact: taoliu@jimmy.harvard.edu
+@originalauthor:  Yong Zhang, Tao Liu
+@originalcontact: taoliu@jimmy.harvard.edu
+
+Modifications to probabilistically align reads to regions with highest
+enrichment performed by Jacob Biesinger. Repackaged as "AREM" in accordance
+with copyright restrictions.
+
+@author: Biesinger, W Jacob B
+@contact: jake.biesinger@gmail.com
+
+
+Changes to this file since original release of MACS 1.4 (summer wishes):
+  December/January 2011
+    * Updated names (AREM, not MACS14)
+    * Modified sort/storage to include multi-reads
+    
 """
 
 # ------------------------------------
@@ -25,13 +39,8 @@ from array import array
 from random import sample as random_sample
 from operator import itemgetter
 from itertools import izip as itertools_izip
-from MACS14.Constants import *
-try:
-    import numpy
-    #use_numpy = True
-    use_numpy = False
-except ImportError:
-    use_numpy = False
+from AREM.Constants import *
+
 # ------------------------------------
 # constants
 # ------------------------------------
@@ -339,54 +348,27 @@ class FWTrackII:
     def sort_chrom(self, k):
         """Sort the start locations for the chromosome, keeping the indexes together
         """
-        if not use_numpy:
-            # argsort
-            locs = self._locations[k][0]
-            indexes = self._indexes[k][0]
-            sort_order = self.argsort(locs)
-            self._locations[k][0] = array('i', (locs[i] for i in sort_order))
-            self._indexes[k][0] = array('i', (indexes[i] for i in sort_order))
-            
-            locs = self._locations[k][1]
-            indexes = self._indexes[k][1]
-            sort_order = self.argsort(locs)
-            self._locations[k][1] = array('i', (locs[i] for i in sort_order))
-            self._indexes[k][1] = array('i', (indexes[i] for i in sort_order))
-            
-            ## zip, sort, unzip
-            ## zip location, index; then sort the tuple by location, then unzip back into place
-            #g0 = itemgetter(0)
-            #(tmparrayplus,tmparrayminus) = self.get_locations_indexes_by_chr(k)
-            #tmparrayplus.sort(key=g0)
-            #self._locations[k][0], self._indexes[k][0] = map(list, zip(*tmparrayplus))
-            #tmparrayminus.sort(key=g0)
-            #self._locations[k][1], self._indexes[k][1] = map(list, zip(*tmparrayminus))
-        else:
-            if type(self._locations[k][0]) is numpy.ndarray:  # not replaced with array.array
-                # "together" already built for this data
-                self._togetherplus[k] = self._togetherplus[k][:,self._togetherplus[k][0,:].argsort()]
-                self._locations[k][0], self._indexes[k][0] = self._togetherplus[k]
-                self._togetherminus[k] = self._togetherminus[k][:,self._togetherminus[k][0,:].argsort()]
-                self._locations[k][1], self._indexes[k][1] = self._togetherminus[k]
-            else:
-                # make an array with the two together. future sorts won't need to recreate
-                self._togetherplus[k] = numpy.append(numpy.fromstring(
-                                            self._locations[k][0].tostring(),
-                                            dtype=numpy.int32),
-                                        numpy.fromstring(
-                                            self._indexes[k][0].tostring(),
-                                            dtype=numpy.int32))
-                self._togetherplus[k] = self._togetherplus[k][:,self._togetherplus[k][0,:].argsort()]
-                self._locations[k][0], self._indexes[k][0] = self._togetherplus[k]
-                
-                self._togetherminus[k] = numpy.append(numpy.fromstring(
-                                            self._locations[k][1].tostring(),
-                                            dtype=numpy.int32),
-                                        numpy.fromstring(
-                                            self._indexes[k][1].tostring(),
-                                            dtype=numpy.int32))
-                self._togetherminus[k] = self._togetherminus[k][:,self._togetherminus[k][0,:].argsort()]
-                self._locations[k][1], self._indexes[k][1] = self._togetherminus[k]
+        # argsort
+        locs = self._locations[k][0]
+        indexes = self._indexes[k][0]
+        sort_order = self.argsort(locs)
+        self._locations[k][0] = array('i', (locs[i] for i in sort_order))
+        self._indexes[k][0] = array('i', (indexes[i] for i in sort_order))
+        
+        locs = self._locations[k][1]
+        indexes = self._indexes[k][1]
+        sort_order = self.argsort(locs)
+        self._locations[k][1] = array('i', (locs[i] for i in sort_order))
+        self._indexes[k][1] = array('i', (indexes[i] for i in sort_order))
+        
+        ## zip, sort, unzip
+        ## zip location, index; then sort the tuple by location, then unzip back into place
+        #g0 = itemgetter(0)
+        #(tmparrayplus,tmparrayminus) = self.get_locations_indexes_by_chr(k)
+        #tmparrayplus.sort(key=g0)
+        #self._locations[k][0], self._indexes[k][0] = map(list, zip(*tmparrayplus))
+        #tmparrayminus.sort(key=g0)
+        #self._locations[k][1], self._indexes[k][1] = map(list, zip(*tmparrayminus))
 
     def filter_dup (self,maxnum):
         """Filter the duplicated reads.
@@ -783,7 +765,7 @@ class FWTrackI:
 
 
 class WigTrackI:
-    """Designed only for wig files generated by MACS/pMA2C/MAT(future
+    """Designed only for wig files generated by AREM/pMA2C/MAT(future
     version). The limitation is 'span' parameter for every track must
     be the same.
     

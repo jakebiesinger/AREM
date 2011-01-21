@@ -1,17 +1,31 @@
-# Time-stamp: <2010-07-14 22:58:38 Tao Liu>
+# Time-stamp: <2011-01-20 18:21:42 Jake Biesinger>
 
-"""Module Description
+"""Description: Emprical model for peak lengths
 
-Copyright (c) 2008 Yong Zhang, Tao Liu <taoliu@jimmy.harvard.edu>
+Copyright (c) 2008,2009,2010 Yong Zhang, Tao Liu <taoliu@jimmy.harvard.edu>
 
 This code is free software; you can redistribute it and/or modify it
 under the terms of the Artistic License (see the file COPYING included
 with the distribution).
 
-@status:  experimental
+@status: beta
 @version: $Revision$
-@author:  Yong Zhang, Tao Liu
-@contact: taoliu@jimmy.harvard.edu
+@originalauthor:  Yong Zhang, Tao Liu
+@originalcontact: taoliu@jimmy.harvard.edu
+
+Modifications to probabilistically align reads to regions with highest
+enrichment performed by Jacob Biesinger. Repackaged as "AREM" in accordance
+with copyright restrictions.
+
+@author: Biesinger, W Jacob B
+@contact: jake.biesinger@gmail.com
+
+
+Changes to this file since original release of MACS 1.4 (summer wishes):
+  December/January 2011
+    * Updated names (AREM, not MACS14)
+    * Use alignment probabilities for multi-reads
+    * Exclude multi-reads from emprical modeling
 """
 import sys, time, random
 

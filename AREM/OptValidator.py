@@ -1,17 +1,29 @@
 # Time-stamp: <2010-08-01 23:08:08 Tao Liu>
 
-"""Module Description
+"""Description:
 
-Copyright (c) 2010 Tao Liu <taoliu@jimmy.harvard.edu>
+Copyright (c) 2008,2009,2010 Yong Zhang, Tao Liu <taoliu@jimmy.harvard.edu>
 
 This code is free software; you can redistribute it and/or modify it
-under the terms of the BSD License (see the file COPYING included with
-the distribution).
+under the terms of the Artistic License (see the file COPYING included
+with the distribution).
 
-@status:  experimental
+@status: beta
 @version: $Revision$
-@author:  Tao Liu
-@contact: taoliu@jimmy.harvard.edu
+@originalauthor:  Yong Zhang, Tao Liu
+@originalcontact: taoliu@jimmy.harvard.edu
+
+Modifications to probabilistically align reads to regions with highest
+enrichment performed by Jacob Biesinger. Repackaged as "AREM" in accordance
+with copyright restrictions.
+
+@author: Biesinger, W Jacob B
+@contact: jake.biesinger@gmail.com
+
+Changes to this file since original release of MACS 1.4 (summer wishes):
+  December/January 2011
+    * Updated names (AREM, not MACS14)
+    * Added Quality Scale (phred score) validator
 """
 
 # ------------------------------------
@@ -23,7 +35,7 @@ import re
 import logging
 from subprocess import Popen, PIPE
 from math import log
-from MACS14.IO.Parser import BEDParser, ELANDResultParser, ELANDMultiParser, ELANDExportParser, PairEndELANDMultiParser, SAMParser, BAMParser, BowtieParser,  guess_parser
+from AREM.IO.Parser import BEDParser, ELANDResultParser, ELANDMultiParser, ELANDExportParser, PairEndELANDMultiParser, SAMParser, BAMParser, BowtieParser,  guess_parser
 # ------------------------------------
 # constants
 # ------------------------------------
@@ -37,12 +49,12 @@ allowed_qual_scales = ['auto', 'sanger+33', 'illumina+64', 'uniform']
 # ------------------------------------
 # Misc functions
 # ------------------------------------
-def opt_validate ( optparser ):
+def opt_validate ( parser ):
     """Validate options from a OptParser object.
 
     Ret: Validated options object.
     """
-    (options,args) = optparser.parse_args()
+    (options,args) = parser.parse_args()
 
     # gsize
     try:
@@ -51,14 +63,14 @@ def opt_validate ( optparser ):
         try:
             options.gsize = float(options.gsize)
         except:
-            log.error("Error when interpreting --gsize option: %s" % options.gsize)
-            log.error("Available shortcuts of effective genome sizes are %s" % ",".join(efgsize.keys()))
+            logging.error("Error when interpreting --gsize option: %s" % options.gsize)
+            logging.error("Available shortcuts of effective genome sizes are %s" % ",".join(efgsize.keys()))
             sys.exit(1)
 
 
     # treatment file
     if not options.tfile:       # only required argument
-        optparser.print_help()
+        parser.print_help()
         sys.exit(1)
 
     # format
@@ -191,7 +203,7 @@ def opt_validate ( optparser ):
                         stream=sys.stderr,
                         filemode="w"
                         )
-	
+
     options.error   = logging.critical		# function alias
     options.warn    = logging.warning
     options.debug   = logging.debug
@@ -222,7 +234,7 @@ def opt_validate ( optparser ):
         options.argtxt += "# Range for calculating regional lambda is: %d bps\n" % (options.largelocal)
 
     # wig file?
-    subdir = options.name+"_MACS_wiggle"
+    subdir = options.name+"_AREM_wiggle"
     if options.store_wig:
         # check subdir
         if os.path.exists(subdir):
