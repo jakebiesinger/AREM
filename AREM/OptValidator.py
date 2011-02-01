@@ -17,8 +17,8 @@ Modifications to probabilistically align reads to regions with highest
 enrichment performed by Jacob Biesinger. Repackaged as "AREM" in accordance
 with copyright restrictions.
 
-@author: Biesinger, W Jacob B
-@contact: jake.biesinger@gmail.com
+@author: Jacob Biesinger, Daniel Newkirk, Alvin Chon 
+@contact: jake.biesinger@gmail.com, dnewkirk@uci.edu, achon@uci.edu
 
 Changes to this file since original release of MACS 1.4 (summer wishes):
   December/January 2011
@@ -45,7 +45,7 @@ efgsize = {"hs":2.7e9,
            "ce":9e7,
            "dm":1.2e8}
 
-allowed_qual_scales = ['auto', 'sanger+33', 'illumina+64', 'uniform']
+allowed_qual_scales = ['auto', 'sanger+33', 'illumina+64']
 # ------------------------------------
 # Misc functions
 # ------------------------------------
@@ -195,6 +195,8 @@ def opt_validate ( parser ):
     options.negxls  = options.name+"_negative_peaks.xls"
     options.diagxls = options.name+"_diag.xls"
     options.modelR  = options.name+"_model.r"
+    options.t_read_bed = options.name + '_treat_read_probs.bed'
+    options.c_read_bed = options.name + '_control_read_probs.bed'
 
     # logging object
     logging.basicConfig(level=(4-options.verbose)*10,

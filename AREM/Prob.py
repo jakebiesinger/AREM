@@ -17,8 +17,8 @@ Modifications to probabilistically align reads to regions with highest
 enrichment performed by Jacob Biesinger. Repackaged as "AREM" in accordance
 with copyright restrictions.
 
-@author: Biesinger, W Jacob B
-@contact: jake.biesinger@gmail.com
+@author: Jacob Biesinger, Daniel Newkirk, Alvin Chon 
+@contact: jake.biesinger@gmail.com, dnewkirk@uci.edu, achon@uci.edu
 
 Changes to this file since original release of MACS 1.4 (summer wishes):
   December/January 2011

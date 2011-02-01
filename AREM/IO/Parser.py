@@ -154,12 +154,10 @@ class MultiReadParser:
         random_select_one_multi = opt.random_select_one_multi
         no_multi_reads = opt.no_multi_reads
         min_score = opt.min_score
+        prior_prob_snp = opt.prior_prob_snp
+        no_prior_prob_map = opt.no_prior_prob_map
         if opt.qual_scale == 'auto':
             opt.qual_scale = self._guess_qual_scale()
-        use_uniform = False
-        if opt.qual_scale == 'uniform':
-            use_uniform = True
-            qual_offset = 0
         if opt.qual_scale == 'sanger+33':
             qual_offset = 33
         elif opt.qual_scale == 'illumina+64':
@@ -194,7 +192,8 @@ class MultiReadParser:
                     fwtrack_add_loc(chromosome,fpos,strand,0)
                 else:  # use all alignments probabilistically
                     group_starts_append(fwtrack.total_multi + 1)  # starts at 1 (0 reserved for unique reads)
-                    if use_uniform:
+                    if no_prior_prob_map:
+                        # don't use map quality; just assume uniform priors
                         for (chromosome,fpos,strand, qualstr,mismatches) in grouplines:
                             i+=1
                             if i == 1000000:
@@ -208,12 +207,6 @@ class MultiReadParser:
                     else:
                         # TODO: might want to be working in log space-- if many mismatches, we'll lose precision
                         qualstr = grouplines[0][3]  # all quality strings are shared across the group
-                        #mismatch_probs = [10.**((qualstr[b] - qual_offset)/-10.) 
-                        #            for b in xrange(len(qualstr))]
-                        #if qualstr[b] < qual_offset:  # quick & dirty check-- only looking at last base
-                        #    raise BaseQualityError("Specified quality scale yielded a negative phred score!  You probably have the wrong scale")
-                        #match_probs = [1 - mismatch_probs[b] for b in 
-                        #               xrange(len(qualstr))]
                         group_total_prob = 0.
                         group_probs = []
                         group_probs_append = group_probs.append
@@ -228,17 +221,40 @@ class MultiReadParser:
                                             fwtrack.total_multi)
                             mismatches = set(mismatches)
                             read_prob = 1.
+                            # P(SNP) = prior probability a SNP occurs at any base
+                            # P(SE) = probability there was a sequencing error (from PHRED)
+                            # _P(Map|SNP,SE)__MATCH__SNP__SE_
+                            #       0           0     0    0    # can't map here without explanation
+                            #       1           0     0    1
+                            #       1           0     1    0
+                            #       1           0     1    1
+                            #       1           1     0    0
+                            #       1           1     0    1
+                            #       0           1     1    0    # wouldn't map here if SNP, but sequencer read reference
+                            #       1           1     1    1
+                            # we are interested in P(Mapping | Match), which is equivalent to:
+                            # \Sum_{SNP \in {0,1}, SE \in {0,1}} p(SNP) * p(SE) * p(Map|SE,SNP), or:
+                            # p(Map|match = 0):
+                            #     p(SE) + p(SNP) + p(SE)*p(SNP)
+                            # p(Map|match = 1):
+                            #    1 - (p(SE) + p(SE)*p(SNP))
                             for b in xrange(len(qualstr)):
                                 tup = (b in mismatches,qualstr[b])
                                 if tup in match_probs:
                                     prob = match_probs[tup]
                                 elif tup[0]:  # mismatch
-                                    prob = 10. ** ((qualstr[b]-qual_offset)/-10.)
+                                    p_seq_error = 10. ** ((qualstr[b]-qual_offset)/-10.)
+                                    prob = p_seq_error + prior_prob_snp + p_seq_error * prior_prob_snp
                                     match_probs[tup] = prob
                                 else:  # match
-                                    prob = 1. - 10. ** ((qualstr[b]-qual_offset)/-10.)
+                                    p_seq_error = 10. ** ((qualstr[b]-qual_offset)/-10.)
+                                    prob = 1. - (p_seq_error + p_seq_error * prior_prob_snp)
                                     match_probs[tup] = prob
                                 read_prob *= prob
+                            # quick & dirty check-- only looking at last base
+                            assert qualstr[b] >= qual_offset # Specified quality scale yielded a negative phred score!  You probably have the wrong PHRED scale!
+                            assert 0.<=read_prob<=1.  # error with map qualities
+                            #raise BaseQualityError("Specified quality scale yielded a negative phred score!  You probably have the wrong PHRED scale!")
                             group_probs_append(read_prob)
                             group_total_prob += read_prob
                         normed_probs = [p / group_total_prob for p in group_probs]
@@ -362,7 +378,7 @@ class BEDParser(GenericParser):
         thisline = thisline.rstrip()
         if not thisline or thisline[:5]=="track" or thisline[:7]=="browser" or thisline[0]=="#": return ("comment line",None,None)
 
-        thisfields = thisline.split()
+        thisfields = thisline.split('\t')
         chromname = thisfields[0]
         try:
             chromname = chromname[:chromname.rindex(".fa")]

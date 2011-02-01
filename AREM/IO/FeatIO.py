@@ -361,7 +361,7 @@ class FWTrackII:
         self._locations[k][1] = array('i', (locs[i] for i in sort_order))
         self._indexes[k][1] = array('i', (indexes[i] for i in sort_order))
         
-        ## zip, sort, unzip
+        ## zip, sort, unzip -- Jake - this method is MUCH slower
         ## zip location, index; then sort the tuple by location, then unzip back into place
         #g0 = itemgetter(0)
         #(tmparrayplus,tmparrayminus) = self.get_locations_indexes_by_chr(k)
@@ -393,7 +393,7 @@ class FWTrackII:
                 pind_append = new_plus_ind.append
                 n = 1                # the number of tags in the current location
                 current_loc = plus[0]
-                for ind, p in zip(plus_ind[1:], plus[1:]):
+                for ind, p in itertools_izip(plus_ind[1:], plus[1:]):
                     if p == current_loc:
                         n += 1
                         if n <= maxnum:

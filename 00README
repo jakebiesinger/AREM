@@ -1,7 +1,27 @@
-README for MACS (1.4.0beta)
-Time-stamp: <2010-08-02 00:41:41 Tao Liu>
+README for AREM 1.0, based on MACS 1.4.0beta
+Time-stamp: <2011-01-20 18:21:42 Jake Biesinger>
 
 * Introduction
+
+High-throughput sequencing coupled to chromatin immuno-
+precipitation (ChIP-Seq) is widely used in characterizing genome-wide
+binding patterns of transcription factors, cofactors, chromatin modifiers,
+and other DNA binding proteins. A key step in ChIP-Seq data analysis
+is to map short reads from high-throughput sequencing to a reference
+genome and identify peak regions enriched with short reads. Although
+several methods have been proposed for ChIP-Seq analysis, most ex-
+isting methods only consider reads that can be uniquely placed in the
+reference genome, and therefore have low power for detecting peaks lo-
+cated within repeat sequences. Here we introduce a probabilistic ap-
+proach for ChIP-Seq data analysis which utilizes all reads, providing a
+truly genome-wide view of binding patterns. Reads are modeled using a
+mixture model corresponding to K enriched regions and a null genomic
+background. We use maximum likelihood to estimate the locations of the
+enriched regions, and implement an expectation-maximization (E-M) al-
+gorithm, called AREM, to update the alignment probabilities of each
+read to different genomic locations.
+
+AREM is based on the popular MACS peak caller, as described below:
 
 With the improvement of sequencing techniques, chromatin
 immunoprecipitation followed by high throughput sequencing (ChIP-Seq)
@@ -21,12 +41,12 @@ Please check the file 'INSTALL' in the distribution.
 
 * Usage
 
-Usage: macs14 <-t tfile> [-n name] [-g genomesize] [options]
+Usage: arem <-t tfile> [-n name] [-g genomesize] [options]
 
-Example: macs14 -t ChIP.bam -c Control.bam -f BAM -g h -n test -w --call-subpeaks
+Example: arem -t ChIP.bam -c Control.bam -f BAM -g h -n test -w --call-subpeaks
 
 
-macs14 -- Model-based Analysis for ChIP-Sequencing
+arem -- Aligning Reads by Expectation-Maximization, based on Model-based Analysis for ChIP-Sequencing (MACS)
 
 Options:
   --version             show program's version number and exit
@@ -129,7 +149,45 @@ Options:
   --fe-max=FEMAX        For diagnostics, max fold enrichment to consider.
                         DEFAULT: maximum fold enrichment
   --fe-step=FESTEP      For diagnostics, fold enrichment step.  DEFAULT: 20
-
+  --no-EM               Do NOT iteratively align multi-reads by E-M. Multi-
+                        read probabilities will be based on quality scores or
+                        uniform (if --no-quals) DEFAULT : FALSE
+  --EM-converge-diff=MIN_CHANGE
+                        The minimum entropy change between iterations before
+                        halting E-M steps. DEFAULT : 1e-05
+  --EM-min-score=MIN_SCORE
+                        Minimum enrichment score. Windows below this threshold
+                        will all look the same to the aligner. DEFAULT : 1.5
+  --EM-max-score=MAX_SCORE
+                        Maximum enrichment score. Windows above this threshold
+                        will all look the same to the aligner, DEFAULT : No
+                        Maximum
+  --EM-show-graphs      generate diagnostic graphs for E-M. (requires
+                        MATPLOTLIB). DEFAULT : FALSE
+  --quality-scale=QUAL_SCALE
+                        Initial alignment probabilities are determined by read
+                        quality and mismatches. Each possible alignment is
+                        assigned a probability from the product over all bases
+                        of either 1-p(ReadError_base) when there is no
+                        mismatch, or p(ReadError_base) when the called base
+                        disagrees with the reference.  You may also select a
+                        uniform initialization. Read quality scale is the must
+                        be one of ['auto', 'sanger+33', 'illumina+64'].
+                        DEFAULT : auto
+  --random-multi        Convert all multi reads to unique reads by selecting
+                        one alignment at random for each read. DEFAULT : False
+  --no-multi            Throw away all reads that have more than one alignment
+  --no-greedy-caller    Use AREM default peak caller instead of the greedy
+                        caller. This normally results in wider, less enriched
+                        peaks, especially with multi-reads. DEFAULT : False
+  --no-map-quals        Do not use mapping probabilities as priors in each
+                        update step; just use relative enrichment. DEFAULT :
+                        False
+  --prior-snp=PRIOR_PROB_SNP
+                        Prior probability that a SNP occurs at any base in the
+                        genome. DEFAULT : 0.001
+  --write-read-probs    Write out all final reads, including their alignment
+                        probabilities as a BED file. DEFAULT : FALSE
 
 ** Parameters:
 
@@ -491,5 +549,5 @@ directory. Note, R is required to draw this figure.
 
 * FAQs
 
-NA now.
+
 

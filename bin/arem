@@ -18,8 +18,8 @@ Modifications to probabilistically align reads to regions with highest
 enrichment performed by Jacob Biesinger. Repackaged as "AREM" in accordance
 with copyright restrictions.
 
-@author: Biesinger, W Jacob B
-@contact: jake.biesinger@gmail.com
+@author: Jacob Biesinger, Daniel Newkirk, Alvin Chon 
+@contact: jake.biesinger@gmail.com, dnewkirk@uci.edu, achon@uci.edu
 
 
 Changes to this file since original release of MACS 1.4 (summer wishes):
@@ -41,7 +41,8 @@ import re
 from subprocess import Popen,PIPE
 from optparse import OptionParser
 import gzip
-from math import e as math_e
+from itertools import izip as itertools_izip
+from bisect import bisect_right
 
 # ------------------------------------
 # own python modules
@@ -99,7 +100,7 @@ def main():
         tagsinfo += "# tags after filtering in treatment: %d\n" % (t1)
         tagsinfo += "# maximum duplicate tags at the same position in treatment = %d\n" % (treatment_max_dup_tags)
         info("#1  Redundant rate of treatment: %.2f" % (float(t0-t1)/t0))
-        tagsinfo += "# Redundant rate in treatment: %.2f\n" % (float(t0-t1)/t0)            
+        tagsinfo += "# Redundant rate in treatment: %.2f\n" % (float(t0-t1)/t0)
 
     if control:
         c0 = control.total
@@ -173,6 +174,7 @@ def main():
                             )
     peakdetect.call_peaks()
     diag_result = peakdetect.diag_result()
+    
     #4 output
     #4.1 peaks in XLS
     options.info("#4 Write output xls file... %s" % (options.peakxls))
@@ -205,6 +207,14 @@ def main():
         ofhd_xls = open(options.negxls,"w")
         ofhd_xls.write(peakdetect.neg_toxls())
         ofhd_xls.close()
+    
+    if options.write_read_probs:
+        options.info("#4 Writing treatment reads and probabilities... " + options.t_read_bed)
+        with open(options.t_read_bed, 'w') as prob_outfile:
+            write_final_reads(peakdetect.treat, prob_outfile, options)
+        options.info("#4 Writing treatment reads and probabilities... " + options.c_read_bed)
+        with open(options.c_read_bed, 'w') as prob_outfile:
+            write_final_reads(peakdetect.control, prob_outfile, options)
 
     #4.4 diag result
     if diag_result:
@@ -223,6 +233,26 @@ def main():
             p = Popen(["PeakSplitter","-p",options.peakbed,"-w",options.wig_dir_tr,"-o",".","-f"],stdout=PIPE)
         options.info("#6 Please check %s_peaks.subpeaks.bed file for PeakSplitter output!" % options.name)
         
+def write_final_reads(fwtrack, fileout, options):
+    """Write a bed file to fileout with all shifted reads and their probabilities.
+    
+    The 5th column ("Name") is the group this read belongs to.
+        (uniquely mapping: "u" multi-reads: group index)
+    The 6th column ("Score") is the mapping probability on a 0-1000 int scale.
+    
+    """
+    tsize = options.tsize
+    curprobs = fwtrack.prob_aligns
+    format_prob = lambda p: str(int(p * 1000. + .5))  # convert prob to 0-1000 integer
+    group_from_index = lambda i: 'u' if i == 0 else str(bisect_right(fwtrack.group_starts, i))
+    for chrom in sorted(fwtrack._locations.keys()):
+        curlocs, curindexes = fwtrack._locations[chrom][0], fwtrack._indexes[chrom][0]
+        for pos,index in itertools_izip(curlocs, curindexes):
+            prob = fwtrack
+            fileout.write('\t'.join([chrom, str(pos), str(pos + tsize),
+                                     group_from_index(index),
+                                    format_prob(curprobs[index]), '+']))
+            fileout.write('\n')
 
 def prepare_optparser ():
     """Prepare optparser object. New options will be added in this
@@ -316,8 +346,13 @@ Example: %prog -t ChIP.bam -c Control.bam -f BAM -g h -n test -w --call-subpeaks
                          help="Throw away all reads that have more than one alignment")
     optparser.add_option("--no-greedy-caller",dest="no_greedy_caller",action='store_true',
                          help="Use AREM default peak caller instead of the greedy caller. This normally results in wider, less enriched peaks, especially with multi-reads. DEFAULT : False")
-    optparser.add_option("--use-map-probs",dest="prior_prob_map",action='store_true',
-                         help="Use mapping probabilities as priors in each update step, rather than just an initialization. DEFAULT : False")
+    optparser.add_option("--no-map-quals",dest="no_prior_prob_map",action='store_true',
+                         help="Do not use mapping probabilities as priors in each update step; just use relative enrichment. DEFAULT : False")
+    optparser.add_option("--prior-snp",dest="prior_prob_snp",type='float',default=.001,
+                     help="Prior probability that a SNP occurs at any base in the genome. DEFAULT : %default")
+    optparser.add_option("--write-read-probs",dest="write_read_probs",action='store_true',
+                     help="Write out all final reads, including their alignment probabilities as a BED file. DEFAULT : FALSE")
+    
 
     return optparser
    

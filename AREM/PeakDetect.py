@@ -17,8 +17,8 @@ Modifications to probabilistically align reads to regions with highest
 enrichment performed by Jacob Biesinger. Repackaged as "AREM" in accordance
 with copyright restrictions.
 
-@author: Biesinger, W Jacob B
-@contact: jake.biesinger@gmail.com
+@author: Jacob Biesinger, Daniel Newkirk, Alvin Chon 
+@contact: jake.biesinger@gmail.com, dnewkirk@uci.edu, achon@uci.edu
 
 
 Changes to this file since original release of MACS 1.4 (summer wishes):
@@ -86,9 +86,6 @@ class PeakDetect:
         #self.save_score = opt.store_score
         self.zwig_tr = opt.zwig_tr
         self.zwig_ctl= opt.zwig_ctl
-        
-        # params for AREM
-        self.call_peak_extend_reads = False
 
     def call_peaks (self):
         """Call peaks function.
@@ -291,7 +288,7 @@ class PeakDetect:
         
         if self.treat.total_multi > 0 and not self.opt.no_EM:
             self.info("#3.5 Perform EM on treatment multi reads")
-            self._align_by_EM(self.treat, self.control, peak_candidates, self.ratio_treat2control)
+            self._align_by_EM(self.treat, self.control, peak_candidates, self.ratio_treat2control,expName='treatment')
         
         self.info("#3 use control data to filter peak candidates...")
         self.final_peaks = self._filter_w_control(peak_candidates,self.treat,self.control, self.ratio_treat2control,fake_when_missing=True)
@@ -305,9 +302,16 @@ class PeakDetect:
             self.info("#3. Perform EM on control multi reads")
             self._align_by_EM(self.control, self.treat,
                                negative_peak_candidates,
-                               float(self.control.total) / self.treat.total)
+                               float(self.control.total) / self.treat.total,
+                               expName='control')
         self.info("#3 use treat data to filter negative peak candidates...")
         self.final_negative_peaks = self._filter_w_control(negative_peak_candidates,self.control,self.treat, 1.0/self.ratio_treat2control,fake_when_missing=True)
+        
+        if self.treat.total_multi > 0 and self.control.total_multi > 0 \
+                and not self.opt.no_EM:
+            # put back EM'ed probabilities
+            self.treat.prob_aligns, self.treat.prior_aligns = self.treat.prior_aligns, self.treat.prob_aligns
+        
         return self._add_fdr (self.final_peaks, self.final_negative_peaks)
 
     def _call_peaks_wo_control (self):
@@ -961,7 +965,7 @@ class PeakDetect:
 
 
     def _align_by_EM(self, treatment, control, init_regions,
-                      treat2control_ratio, show_graphs=None):
+                      treat2control_ratio, show_graphs=None, expName='treatment'):
         """
         Align the multi reads in treatment using expectation-maximization.
         
@@ -1027,9 +1031,12 @@ class PeakDetect:
         # for each iteration
         #if False:
         if show_graphs:
-            self._plot_EM_state(0, final_regions, peak_posns, in_candidate)
+            try:
+                self._plot_EM_state(0, final_regions, peak_posns, in_candidate, expName=expName)
+            except:
+                print 'Plotting failed!'
         prev_entropy = None
-        prior_prob_map = self.opt.prior_prob_map
+        no_prior_prob_map = self.opt.no_prior_prob_map
         for iteration in itertools_count(1):  # until convergence
             cur_entropy = list(self._get_read_entropy(treatment))
             if prev_entropy is not None:  # check for convergence
@@ -1061,14 +1068,14 @@ class PeakDetect:
                         t_enrich_scores[i] = score
 
             # normalize the alignment probabilities for all multireads
-            for i in range(len(t_group_starts)):
+            for i in xrange(1, len(t_group_starts)):
                 group_start = t_group_starts[i]
                 if i < len(t_group_starts) - 1:
                     group_end = t_group_starts[i+1]
                 else:
                     group_end = len(t_group_starts)
                 group_range = range(group_start, group_end)
-                if prior_prob_map: # posterior = map prob * enrichment
+                if not no_prior_prob_map: # posterior = map prob * enrichment
                     enrich_vals = [0.] * (group_end - group_start)
                     enrich_total = 0.
                     for j in group_range:
@@ -1082,17 +1089,25 @@ class PeakDetect:
                     for j in group_range:
                         t_prob_aligns[j] = t_enrich_scores[j] / enrich_total
             if show_graphs:
-                self._plot_EM_state(iteration, final_regions, peak_posns, in_candidate)
+                try:
+                    self._plot_EM_state(iteration, final_regions, peak_posns, in_candidate,expName=expName)
+                except:
+                    pass
             prev_entropy = cur_entropy
             # rinse and repeat (until convergence)
     
-    def _plot_EM_state(self, iteration, final_regions, peak_posns, in_candidate, output_summary=False):
+    def _plot_EM_state(self, iteration, final_regions, peak_posns, in_candidate, expName, output_summary=False, state=[False]):
         '''Plot the current data state. These may include:
            Entropy Histogram, CDF of enrichment scores and alignment probabilities,
            ratio of FG to BG scores or probabilities
         '''
+        if not state[0]:
+            import matplotlib
+            matplotlib.use('Agg')
+            from matplotlib import pyplot
+            state[0] = True
         if output_summary:
-            with open(self.opt.name + '_EMpeaks_%s.txt' % iteration, 'w') as outfile:
+            with open(self.opt.name +'_'+expName+ '_EMpeaks_%s.txt' % iteration, 'w') as outfile:
                 # final_regions[chrom].append((local_lambda, unique_count, multi_inds))
                 outfile.write('\t'.join(['chrom', 'start', 'stop', 'length', 'local_lamba',
                                          'unique_count', 'total_mass']) + '\n')
@@ -1103,11 +1118,11 @@ class PeakDetect:
                         peak_length = peak_posns[chrom][i][1] - peak_posns[chrom][i][0]
                         line = (chrom,) + peak_posns[chrom][i] +  (peak_length, data[0], data[1], peak_mass)
                         outfile.write('\t'.join(map(str, line)) + '\n')
-        self._plot_entropy_hist(iteration, self.treat)
-        self._plot_enrichment_CDF(iteration, self.treat)
-        self._plot_probability_CDF(iteration, self.treat)
-        #self._plot_probability_mass_ratio(iteration, self.treat, self.control)
-        self._plot_max_probability(iteration, self.treat)
+        self._plot_entropy_hist(iteration, self.treat,expName)
+        self._plot_enrichment_CDF(iteration, self.treat,expName)
+        self._plot_probability_CDF(iteration, self.treat,expName)
+        #self._plot_probability_mass_ratio(iteration, self.treat, self.control,expName)
+        self._plot_max_probability(iteration, self.treat,expName)
 
     def _get_read_entropy(self, treatment, normed=True, minScore=None):
         'generator for entropy in read alignments'
@@ -1123,7 +1138,7 @@ class PeakDetect:
             if minScore is None:
                 probs = [t_prob_aligns[j] for j in group_range]
             else:
-                scores = [t_enrich_scores[j] - minScore for j in group_range]
+                scores = [t_enrich_score[j] - minScore for j in group_range]
                 scoreTotal = sum(scores)
                 if scoreTotal < 0.:
                     scoreTotal = 0.
@@ -1138,7 +1153,7 @@ class PeakDetect:
             else:
                 yield -sum(entropies)
 
-    def _plot_entropy_hist(self, iteration, treatment):
+    def _plot_entropy_hist(self, iteration, treatment, expName):
         from matplotlib import pyplot
         entropy = list(self._get_read_entropy(treatment))
         #outfile = open('entropy.%s.txt' % iteration, 'wb')
@@ -1152,10 +1167,10 @@ class PeakDetect:
         pyplot.ylabel('Number of reads')
         pyplot.title('Multihit entropy distribution for %s at i=%s' % (
                         self.opt.name,iteration))
-        pyplot.savefig(self.opt.name + '_entropy_%s.png' % iteration)
+        pyplot.savefig(self.opt.name +'_'+expName+ '_entropy_%s.png' % iteration)
         pyplot.close()
 
-    def _plot_enrichment_CDF(self, iteration, treatment):
+    def _plot_enrichment_CDF(self, iteration, treatment, expName):
         from matplotlib import pyplot
         pyplot.hist(treatment.enrich_scores, bins=100, normed=True, 
                     cumulative=True, histtype='step') 
@@ -1168,10 +1183,10 @@ class PeakDetect:
         pyplot.ylabel('fraction of data')
         pyplot.title('CDF of Enrichment Scores for %s at i=%s' % (self.opt.name,
                                                                   iteration))
-        pyplot.savefig(self.opt.name + '_CDF_enrichment_%s.png' % iteration)
+        pyplot.savefig(self.opt.name +'_'+expName+ '_CDF_enrichment_%s.png' % iteration)
         pyplot.close()
     
-    def _plot_probability_CDF(self, iteration, treatment):
+    def _plot_probability_CDF(self, iteration, treatment, expName):
         from matplotlib import pyplot
         #outfile = open('alignProbs.%s.txt' % iteration, 'wb')
         #for value in treatment.prob_aligns:
@@ -1186,10 +1201,10 @@ class PeakDetect:
         pyplot.ylabel('Fraction of data')
         pyplot.title('CDF of alignment probabilities for %s at i=%s' % (
                         self.opt.name,iteration))
-        pyplot.savefig(self.opt.name + '_CDF_prob_%s.png' % iteration)
+        pyplot.savefig(self.opt.name +'_'+expName+ '_CDF_prob_%s.png' % iteration)
         pyplot.close()
     
-    def _plot_max_probability(self, iteration, treatment):
+    def _plot_max_probability(self, iteration, treatment,expName):
         from matplotlib import pyplot
         max_probs = []
         for i in range(len(treatment.group_starts)):
@@ -1205,7 +1220,7 @@ class PeakDetect:
         pyplot.xlabel('Highest Alignment Probability')
         pyplot.ylabel('Count')
         pyplot.title('Highest read alignment probability for %s at i=%s' % (self.opt.name, iteration))
-        pyplot.savefig(self.opt.name + '_max_prob_%s.png' % iteration)
+        pyplot.savefig(self.opt.name +'_'+expName+ '_max_prob_%s.png' % iteration)
         pyplot.close()
 
 
