@@ -44,11 +44,11 @@ def main():
         sys.exit(1)
 
     setup(name="AREM",
-          version="AREM 1.0 Initial Release based on MACS 1.4 (summer wishes)",
+          version="1.0.0",
           description="Aligning Reads by Expectation-Maximization.\nBased on MACS (Model Based Analysis for ChIP-Seq data)",
-          author='Jake Biesinger; Yong Zhang; Tao (Foo) Liu',
-          author_email='jake.biesinger@gmail.com; zy@jimmy.harvard.edu; taoliu@jimmy.harvard.edu',
-          url='http://http://cbcl.ics.uci.edu/CompBioLab/index.php/AREM  http://liulab.dfci.harvard.edu/MACS/',
+          author='Jake Biesinger; Daniel Newkirk; Alvin Chon; Yong Zhang; Tao (Foo) Liu',
+          author_email='jake.biesinger@gmail.com; dnewkirk@uci.edu; achon@uci.edu; zy@jimmy.harvard.edu; taoliu@jimmy.harvard.edu',
+          url='http://cbcl.ics.uci.edu/AREM',
           package_dir={'AREM' : 'lib'},
           packages=['AREM', 'AREM.IO'],
           scripts=['bin/arem','bin/elandmulti2bed.py','bin/elandresult2bed.py','bin/elandexport2bed.py',

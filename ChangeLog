@@ -1,5 +1,5 @@
 2011-01-20 Jake Biesinger <jake.biesinger@gmail.com>
-	AREM version 1.0, based on MACS version 1.4.0beta (summer wishes)
+	AREM version 1.0.0, based on MACS version 1.4.0beta (summer wishes)
 	
 	This version introduces some major modifications to MACS, including new
 	packaging as ``AREM'': Aligning Reads By Expectation-Maximization. Most

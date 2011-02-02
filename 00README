@@ -21,6 +21,9 @@ enriched regions, and implement an expectation-maximization (E-M) al-
 gorithm, called AREM, to update the alignment probabilities of each
 read to different genomic locations.
 
+For additional information, see our paper in RECOMB 2011 or visit our website:
+http://cbcl.ics.uci.edu/AREM
+
 AREM is based on the popular MACS peak caller, as described below:
 
 With the improvement of sequencing techniques, chromatin
@@ -34,6 +37,8 @@ enriched ChIP regions, and MACS improves the spatial resolution of
 binding sites through combining the information of both sequencing tag
 position and orientation. MACS can be easily used for ChIP-Seq data
 alone, or with control sample with the increase of specificity.
+
+The original MACS package is available at: http://liulab.dfci.harvard.edu/MACS/
 
 * Install
 
