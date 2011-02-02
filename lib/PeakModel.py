@@ -44,8 +44,6 @@ def median (nums):
     else:
         return p[l/2]
 
-print "JAKES VERSION!!!!\n\n\n\n\n!!!!!!"
-
 class NotEnoughPairsException(Exception):
     def __init__ (self,value):
         self.value = value

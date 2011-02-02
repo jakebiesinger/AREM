@@ -1,6 +1,6 @@
-Metadata-Version: 1.0
+Metadata-Version: 1.0.0
 Name: AREM
-Version: "AREM 1.0 Initial Release based on MACS 1.4 (summer wishes)"
+Version: "AREM 1.0.0"
 Summary: Aligning Reads by Expectation-Maximization. Based on MACS (Model Based Analysis for ChIP-Seq data)
 Home-page: http://http://cbcl.ics.uci.edu/CompBioLab/index.php/AREM
 Author: AREM -- Jacob Biesinger; MACS -- Yong Zhang; Tao (Foo) Liu
