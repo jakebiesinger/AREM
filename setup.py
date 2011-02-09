@@ -38,6 +38,9 @@ try:
 except ImportError:
     pass
 
+def read(fname):
+    return open(os.path.join(os.path.dirname(__file__), fname)).read()
+
 def main():
     if float(sys.version[:3])<2.6 or float(sys.version[:3])>=2.8:
         sys.stderr.write("CRITICAL: Python version must be 2.6 or 2.7!\n")
@@ -49,21 +52,26 @@ def main():
           author='Jake Biesinger; Daniel Newkirk; Alvin Chon; Yong Zhang; Tao (Foo) Liu',
           author_email='jake.biesinger@gmail.com; dnewkirk@uci.edu; achon@uci.edu; zy@jimmy.harvard.edu; taoliu@jimmy.harvard.edu',
           url='http://cbcl.ics.uci.edu/AREM',
+          long_description=read('README'),
           package_dir={'AREM' : 'lib'},
           packages=['AREM', 'AREM.IO'],
           scripts=['bin/arem','bin/elandmulti2bed.py','bin/elandresult2bed.py','bin/elandexport2bed.py',
                    'bin/sam2bed.py'],
           console=['bin/arem'],
           app    =['bin/arem'],
+          
           classifiers=[
-              'Development Status :: 4 - experimental',
+              'Development Status :: 4 - Beta',
               'Environment :: Console',
               'Intended Audience :: Developers',
+              'Intended Audience :: Science/Research',
               'License :: OSI Approved :: Artistic License',
               'Operating System :: MacOS :: MacOS X',
               'Operating System :: Microsoft :: Windows',
               'Operating System :: POSIX',
-              'Programming Language :: Python',
+              'Programming Language :: Python :: 2.6',
+              'Programming Language :: Python :: 2.7',
+              'Topic :: Scientific/Engineering :: Bio-Informatics'
               ],
           )
 
