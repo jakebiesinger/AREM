@@ -161,8 +161,11 @@ def main():
             options.d=options.shiftsize*2
             options.scanwindow=2*options.d 
             warn("#2 Use %d as shiftsize, %d as fragment length" % (options.shiftsize,options.d))
-
-
+    
+    #2.5 Optionally sample down from the larger of the two datasets to match the total tag count
+    # would need to update the redundant rate for both datasets as well as rescale the bglambdas.
+    # I think the best place to do this is *after* the model is built and the tags are shifted
+    
     #3 Call Peaks
     options.info("#3 Call peaks...")
     if options.nolambda:
