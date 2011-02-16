@@ -274,7 +274,7 @@ class MultiReadParser(object):
         qual_min, qual_max = None, None
         n = 0
         m = 0
-        while n<100 and m<1000:
+        while n<500 and m<2000:
             m += 1
             thisline = self.fhd.readline()
             try:
@@ -311,10 +311,8 @@ class MultiReadParser(object):
         cur_tagname = None
         aligns = []
         for thisline in filelines:
-            try:
-                (chromosome,fpos,strand,tagname,qualstr,mismatches) = self._fw_parse_line(thisline)
-            except:
-                continue  
+            (chromosome,fpos,strand,tagname,
+                qualstr,mismatches) = self._fw_parse_line(thisline)
             if not fpos or not chromosome:
                 #print 'skipping', thisline
                 continue
