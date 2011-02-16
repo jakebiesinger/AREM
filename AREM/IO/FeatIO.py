@@ -278,19 +278,20 @@ class FWTrackII:
         self._togetherplus = None
         self._togetherminus = None
 
-    def add_loc (self, chromosome, fiveendpos, strand, index):
+    def add_loc (self, chromosome, fiveendpos, strand, index=0):
         """Add a location to the list according to the sequence name.
         
         chromosome -- mostly the chromosome name
-        fiveendpos -- 5' end pos, left for plus strand, neg for neg strand
+        fiveendpos -- 5' end pos, left for plus strand, right for neg strand
         strand     -- 0: plus, 1: minus
+        index      -- index for multi-reads, left for plus strand, right for neg strand
         """
         if not self._locations.has_key(chromosome):
             self._locations[chromosome] = [array(BYTE4,[]),array(BYTE4,[])] # for (+strand, -strand)
             self._indexes[chromosome] = [array(BYTE4,[]),array(BYTE4,[])] # for (+strand, -strand)
-            #self._locations[chromosome] = [[],[]] # for (+strand, -strand)
         self._locations[chromosome][strand].append(fiveendpos)
         self._indexes[chromosome][strand].append(index)
+        self.total+=1
     
     def get_locations_by_chr (self, chromosome):
         """Return a tuple of two lists of locations for certain chromosome.

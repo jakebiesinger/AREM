@@ -28,15 +28,11 @@ Changes to this file since original release of MACS 1.4 (summer wishes):
 
 import os
 import sys
-from distutils.core import setup, Extension
 try:
-    import py2exe
-except ImportError:
-    pass
-try:
-    import py2app
-except ImportError:
-    pass
+    from setuptools import setup, Extension
+except:
+    from distutils.core import setup
+
 
 def read(fname):
     return open(os.path.join(os.path.dirname(__file__), fname)).read()
@@ -53,13 +49,11 @@ def main():
           author_email='jake.biesinger@gmail.com; dnewkirk@uci.edu; achon@uci.edu; zy@jimmy.harvard.edu; taoliu@jimmy.harvard.edu',
           url='http://cbcl.ics.uci.edu/AREM',
           long_description=read('README'),
-          package_dir={'AREM' : 'lib'},
+          package_dir={'AREM' : 'AREM'},
           packages=['AREM', 'AREM.IO'],
           scripts=['bin/arem','bin/elandmulti2bed.py','bin/elandresult2bed.py','bin/elandexport2bed.py',
                    'bin/sam2bed.py'],
-          console=['bin/arem'],
-          app    =['bin/arem'],
-          
+          license = "Creative",
           classifiers=[
               'Development Status :: 4 - Beta',
               'Environment :: Console',

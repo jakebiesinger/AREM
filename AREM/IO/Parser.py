@@ -96,7 +96,7 @@ class StrandFormatError(Exception):
 class BaseQualityError(Exception):
     pass
     
-class GenericParser:
+class GenericParser(object):
     """Generic Parser class.
 
     Inherit this to write your own parser.
@@ -128,7 +128,7 @@ class GenericParser:
                 self.fhd.seek(0)
                 return t
 
-class MultiReadParser:
+class MultiReadParser(object):
     """Parser capable of handling reads with more than one mapping.
     
     Inherit from this class to allow your parser to handle multi-reads.
@@ -150,6 +150,7 @@ class MultiReadParser:
         fwtrack = FWTrackII()
         i = 0
         m = 0
+        read_total = 0
         recent_tags = []
         random_select_one_multi = opt.random_select_one_multi
         no_multi_reads = opt.no_multi_reads
@@ -167,7 +168,7 @@ class MultiReadParser:
         match_probs = {} # {(1,30):p(match|phred=30), (0,30):p(mismatch|phred=30)}
 
         for grouplines in self._group_by_name(self.fhd):
-            fwtrack.total+=1  # in ratios, only count reads, not total alignments
+            read_total += 1  # in ratios, only count reads, not total alignments
             if len(grouplines) == 1:
                 # uniquely mapping reads
                 i+=1
@@ -261,6 +262,7 @@ class MultiReadParser:
                     fwtrack.prob_aligns.extend(normed_probs)
                     fwtrack.prior_aligns.extend(normed_probs)
                     fwtrack.enrich_scores.extend([min_score] * len(grouplines))
+        fwtrack.total = read_total  # overwrite the running total, counting each read once
         return fwtrack
     
     def _guess_qual_scale(self):
@@ -310,7 +312,7 @@ class MultiReadParser:
             (chromosome,fpos,strand,tagname,qualstr,mismatches
                 ) = self._fw_parse_line(thisline)
             if not fpos or not chromosome:
-                print 'skipping', thisline
+                #print 'skipping', thisline
                 continue
             if cur_tagname is None:
                 cur_tagname = tagname  # first line
@@ -817,7 +819,8 @@ class PairEndELANDMultiParser(GenericParser):
         return hits
 
 ### Contributed by Davide, modified by Tao
-class SAMParser(GenericParser):
+### now uses multireads
+class SAMParser(MultiReadParser, GenericParser):
     """File Parser Class for SAM File.
 
     Each line of the output file contains at least: 
@@ -860,7 +863,7 @@ class SAMParser(GenericParser):
         while n<10 and m<1000:
             m += 1
             thisline = self.fhd.readline()
-            (chromosome,fpos,strand) = self._fw_parse_line(thisline)
+            (chromosome,fpos,strand,tname,qual,mismatches) = self._fw_parse_line(thisline)
             if not fpos or not chromosome:
                 continue
             thisline = thisline.rstrip()
@@ -869,49 +872,31 @@ class SAMParser(GenericParser):
             n += 1
         self.fhd.seek(0)
         return int(s/n)
-
-    def build_fwtrack (self, opt):
-        """Build FWTrackII from all lines, return a FWTrackII object.
-
-        Note only the unique match for a tag is kept.
-        """
-        fwtrack = FWTrackII()
-        i = 0
-        m = 0
-        for thisline in self.fhd:
-            (chromosome,fpos,strand) = self._fw_parse_line(thisline)
-            i+=1
-            if i == 1000000:
-                m += 1
-                logging.info(" %d" % (m*1000000))
-                i=0
-            if not fpos or not chromosome:
-                continue
-            fwtrack.add_loc(chromosome,fpos,strand)
-        return fwtrack
     
     def _fw_parse_line (self, thisline ):
         thisline = thisline.rstrip()
-        if not thisline: return ("blank",None,None)
-        if thisline[0]=="@": return ("comment line",None,None) # header line started with '@' is skipped
+        if not thisline: return ("blank",None,None,None,None,None)
+        if thisline[0]=="@": return ("comment line",None,None,None,None,None) # header line started with '@' is skipped
         thisfields = thisline.split()
         thistagname = thisfields[0]         # name of tag
         thisref = thisfields[2]
+        thisqual = thisfields[10]
+        qualvals = struct.unpack('%sb'%len(thisqual), thisqual)
         bwflag = int(thisfields[1])
         if bwflag & 4 or bwflag & 512 or bwflag & 1024:
-            return (None, None, None)       #unmapped sequence or bad sequence
+            return (None, None, None, None, None, None)       #unmapped sequence or bad sequence
         if bwflag & 1:
             # paired read. We should only keep sequence if the mate is mapped
             # and if this is the left mate, all is within  the flag! 
             if not bwflag & 2:
-                return (None, None, None)   # not a proper pair
+                return (None, None, None, None, None, None)   # not a proper pair
             if bwflag & 8:
-                return (None, None, None)   # the mate is unmapped
+                return (None, None, None, None, None, None)   # the mate is unmapped
             p1pos = int(thisfields[3]) - 1
             p2pos = int(thisfields[7]) - 1
             if p1pos > p2pos:
                 # this pair is the farthest one, skip it
-                return (None, None, None)
+                return (None, None, None, None, None, None)
         # In case of paired-end we have now skipped all possible "bad" pairs
         # in case of proper pair we have skipped the rightmost one... if the leftmost pair comes
         # we can treat it as a single read, so just check the strand and calculate its
@@ -927,7 +912,14 @@ class SAMParser(GenericParser):
             thisref = thisref[:thisref.rindex(".fa")]
         except ValueError:
             pass
-        return (thisref, thisstart, thisstrand)
+        # (chromosome,fpos,strand,tagname,qualstr,mismatches)
+        # not sure which field would be best to use-- Could use MAPQ,
+        # indel information from CIGAR string, AS (alignment score),
+        # NM (edit distance)
+        # I don't know that any of these will be consistent across mappers, and
+        # they may not give us the positions of mismatches.  Finally, how would
+        # we manage indels?
+        return (thisref, thisstart, thisstrand, thistagname, qualvals, [])
 
 class BAMParser(GenericParser):
     """File Parser Class for BAM File.
@@ -1068,8 +1060,6 @@ class BAMParser(GenericParser):
             thisstrand = 0
 
         return (thisref, thisstart, thisstrand)
-
-### End ###
 
 class BowtieParser(MultiReadParser, GenericParser):
     """File Parser Class for map files from Bowtie or MAQ's maqview
