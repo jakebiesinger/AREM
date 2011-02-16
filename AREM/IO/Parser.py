@@ -25,7 +25,9 @@ Changes to this file since original release of MACS 1.4 (summer wishes):
   December/January 2011
     * Updated names (AREM, not MACS14)
     * Added MultiRead parser as a base class using alignment qualities
-    * Updated SAM, BAM, and Bowtie parsers to use multi-read parser    
+    * Updated SAM, BAM, and Bowtie parsers to use multi-read parser
+  February 2011 (Daniel Newkirk)
+    * Added a parser to allow for parsing of Pash 3.0 alignment files
 """
 
 
@@ -275,9 +277,9 @@ class MultiReadParser(object):
         while n<100 and m<1000:
             m += 1
             thisline = self.fhd.readline()
-            (chromosome,fpos,strand, tagname, qualstr, mismatches
-                ) = self._fw_parse_line(thisline)
-            if not fpos or not chromosome:
+            try:
+                (chromosome,fpos,strand, tagname, qualstr, mismatches) = self._fw_parse_line(thisline)
+            except:
                 continue
             if qual_min is None or qual_max is None:
                 qual_min = min(qualstr)
@@ -309,8 +311,10 @@ class MultiReadParser(object):
         cur_tagname = None
         aligns = []
         for thisline in filelines:
-            (chromosome,fpos,strand,tagname,qualstr,mismatches
-                ) = self._fw_parse_line(thisline)
+            try:
+                (chromosome,fpos,strand,tagname,qualstr,mismatches) = self._fw_parse_line(thisline)
+            except:
+                continue  
             if not fpos or not chromosome:
                 #print 'skipping', thisline
                 continue
@@ -342,7 +346,7 @@ class BEDParser(GenericParser):
             (chromosome,fpos,strand) = self._fw_parse_line(thisline)
             if not fpos or not chromosome:
                 continue
-            thisline = thisline.rstrip()
+            thisline = thisline.rstrip('\n')
             thisfields = thisline.split()
             s += int(thisfields[2])-int(thisfields[1])
             n += 1
@@ -377,7 +381,7 @@ class BEDParser(GenericParser):
         return fwtrack
     
     def _fw_parse_line (self, thisline ):
-        thisline = thisline.rstrip()
+        thisline = thisline.rstrip('\n')
         if not thisline or thisline[:5]=="track" or thisline[:7]=="browser" or thisline[0]=="#": return ("comment line",None,None)
 
         thisfields = thisline.split('\t')
@@ -423,7 +427,7 @@ class ELANDResultParser(GenericParser):
             (chromosome,fpos,strand) = self._fw_parse_line(thisline)
             if not fpos or not chromosome:
                 continue
-            thisline = thisline.rstrip()
+            thisline = thisline.rstrip('\n')
             thisfields = thisline.split()
             s += len(thisfields[1])
             n += 1
@@ -451,7 +455,7 @@ class ELANDResultParser(GenericParser):
     
     def _fw_parse_line (self, thisline ):
         #if thisline.startswith("#") or thisline.startswith("track") or thisline.startswith("browser"): return ("comment line",None,None) # comment line is skipped
-        thisline = thisline.rstrip()
+        thisline = thisline.rstrip('\n')
         if not thisline: return ("blank",None,None)
 
         thisfields = thisline.split()
@@ -513,7 +517,7 @@ class ELANDMultiParser(GenericParser):
             (chromosome,fpos,strand) = self._fw_parse_line(thisline)
             if not fpos or not chromosome:
                 continue
-            thisline = thisline.rstrip()
+            thisline = thisline.rstrip('\n')
             thisfields = thisline.split()
             s += len(thisfields[1])
             n += 1
@@ -542,7 +546,7 @@ class ELANDMultiParser(GenericParser):
     
     def _fw_parse_line (self, thisline ):
         if not thisline: return (None,None,None)
-        thisline = thisline.rstrip()
+        thisline = thisline.rstrip('\n')
         if not thisline: return ("blank",None,None)
 
         #if thisline[0] == "#": return ("comment line",None,None) # comment line is skipped
@@ -595,7 +599,7 @@ class ELANDExportParser(GenericParser):
             (chromosome,fpos,strand) = self._fw_parse_line(thisline)
             if not fpos or not chromosome:
                 continue
-            thisline = thisline.rstrip()
+            thisline = thisline.rstrip('\n')
             thisfields = thisline.split("\t")
             s += len(thisfields[8])
             n += 1
@@ -624,7 +628,7 @@ class ELANDExportParser(GenericParser):
     
     def _fw_parse_line (self, thisline ):
         #if thisline.startswith("#") : return ("comment line",None,None) # comment line is skipped
-        thisline = thisline.rstrip()
+        thisline = thisline.rstrip('\n')
         if not thisline: return ("blank",None,None)
     
         thisfields = thisline.split("\t")
@@ -670,7 +674,7 @@ class PairEndELANDMultiParser(GenericParser):
         while n<10 and m<1000:
             m += 1
             thisline = self.lfhd.readline()
-            thisline = thisline.rstrip()
+            thisline = thisline.rstrip('\n')
             if not thisline: continue
             thisfields = thisline.split("\t")
             s += len(thisfields[1])
@@ -866,15 +870,18 @@ class SAMParser(MultiReadParser, GenericParser):
             (chromosome,fpos,strand,tname,qual,mismatches) = self._fw_parse_line(thisline)
             if not fpos or not chromosome:
                 continue
-            thisline = thisline.rstrip()
+            thisline = thisline.rstrip('\n')
             thisfields = thisline.split("\t")
-            s += len(thisfields[9])
-            n += 1
+            try:
+                s += len(thisfields[9])
+                n += 1
+            except:
+                continue
         self.fhd.seek(0)
         return int(s/n)
-    
+
     def _fw_parse_line (self, thisline ):
-        thisline = thisline.rstrip()
+        thisline = thisline.rstrip('\n')
         if not thisline: return ("blank",None,None,None,None,None)
         if thisline[0]=="@": return ("comment line",None,None,None,None,None) # header line started with '@' is skipped
         thisfields = thisline.split()
@@ -882,6 +889,7 @@ class SAMParser(MultiReadParser, GenericParser):
         thisref = thisfields[2]
         thisqual = thisfields[10]
         qualvals = struct.unpack('%sb'%len(thisqual), thisqual)
+        possible_mismatches = thisfields[5]
         bwflag = int(thisfields[1])
         if bwflag & 4 or bwflag & 512 or bwflag & 1024:
             return (None, None, None, None, None, None)       #unmapped sequence or bad sequence
@@ -919,7 +927,11 @@ class SAMParser(MultiReadParser, GenericParser):
         # I don't know that any of these will be consistent across mappers, and
         # they may not give us the positions of mismatches.  Finally, how would
         # we manage indels?
-        return (thisref, thisstart, thisstrand, thistagname, qualvals, [])
+        if len(possible_mismatches) > 3:
+            mismatches = possible_mismatches[3]
+        else:
+            mismatches = []
+        return (thisref,thisstart,thisstrand,thistagname,qualvals,mismatches)
 
 class BAMParser(GenericParser):
     """File Parser Class for BAM File.
@@ -989,7 +1001,7 @@ class BAMParser(GenericParser):
 
     def build_fwtrack (self, opt):
         """Build FWTrackII from all lines, return a FWTrackII object.
-
+    
         Note only the unique match for a tag is kept.
         """
         fwtrack = FWTrackII()
@@ -999,11 +1011,11 @@ class BAMParser(GenericParser):
         fseek = self.fhd.seek
         fread = self.fhd.read
         ftell = self.fhd.tell
-        # move to pos 4, there starts something
+         #move to pos 4, there starts something
         fseek(4)
         header_len =  struct.unpack('<i', fread(4))[0]
         fseek(header_len + ftell())
-        # get the number of chromosome
+         #get the number of chromosome
         nc = struct.unpack('<i', fread(4))[0]
         for x in range(nc):
             # read each chromosome name
