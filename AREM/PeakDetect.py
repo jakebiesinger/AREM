@@ -420,7 +420,6 @@ class PeakDetect:
             prev_index_ttag = 0            
             len_ctags =len(ctags)
             len_ttags =len(ttags)
-            print '# candidates:', len(peak_list)
             for i in range(len(peak_list)):
                 #(peak_start,peak_end,peak_length,peak_summit,peak_height,peak_num_tags) = peak_list[i]
                 #(peak_start,peak_end,peak_length,peak_summit,peak_height,peak_num_tags, peak_indices) = peak_list[i]
@@ -522,7 +521,6 @@ class PeakDetect:
                     else:
                         # for experiment w/ control
                         local_lambda = lmax(lambda_bg,clambda_peak,clambda_lregion,clambda_sregion)
-
                 p_tmp = lpoisson_cdf(tlambda_peak,local_lambda,lower=False)
                 if p_tmp <= 0:
                     peak_pvalue = 3100
@@ -692,7 +690,7 @@ class PeakDetect:
             cpr_tags.extend(tags[:min_tags-1])
             number_cpr_tags = min_tags-1
             p = min_tags-1 # Next Tag Index
-            cpr_probs = [prob_aligns[tags_ind[i]] for i in xrange(min_tags-1)]
+            cpr_probs = [prob_aligns[tags_ind[i]] for i in xrange(min(min_tags-1, len(tags_ind)))]
             cpr_probs_append = cpr_probs.append
             cpr_probs_pop = cpr_probs.pop
             #cpr_indices = range(p+1)

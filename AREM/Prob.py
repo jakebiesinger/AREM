@@ -208,7 +208,7 @@ def poisson_cdf (n, lam, lower=True):
     To handle multi-reads properly, we do linear interpolation of the cdf 
     between floor(n) and ceil(n).
     """
-    lam = round(lam, 3)
+    lam = round(lam, 4)
     #lam = int((lam + .0005) * 1000) / 1000.   # speedup-- round lambda to thousands place
     floor_n = floor(n)
     ceil_n = floor_n + 1
