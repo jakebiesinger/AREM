@@ -1,8 +1,8 @@
-# Time-stamp: <2010-07-14 23:07:44 Tao Liu>
+# Time-stamp: <2011-02-15 17:07:20 Tao Liu>
 
 """Module for Feature IO classes.
 
-Copyright (c) 2010 Tao Liu <taoliu@jimmy.harvard.edu>
+Copyright (c) 2010,2011 Tao Liu <taoliu@jimmy.harvard.edu>
 
 This code is free software; you can redistribute it and/or modify it
 under the terms of the Artistic License (see the file COPYING included
@@ -256,7 +256,7 @@ class FWTrackII:
         """Add a location to the list according to the sequence name.
         
         chromosome -- mostly the chromosome name
-        fiveendpos -- 5' end pos, left for plus strand, neg for neg strand
+        fiveendpos -- 5' end pos, left for plus strand, right for neg strand
         strand     -- 0: plus, 1: minus
         """
         if not self.__locations.has_key(chromosome):
@@ -454,7 +454,7 @@ class FWTrackI:
         """Add a location to the list according to the sequence name.
         
         chromosome -- mostly the chromosome name
-        fiveendpos -- 5' end pos, left for plus strand, neg for neg strand
+        fiveendpos -- 5' end pos, left for plus strand, right for neg strand
         strand     -- 0: plus, 1: minus
         """
         if not self.__locations.has_key(chromosome):
