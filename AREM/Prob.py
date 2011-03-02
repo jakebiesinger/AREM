@@ -1,8 +1,8 @@
-# Time-stamp: <2011-01-20 18:21:42 Jake Biesinger>
+# Time-stamp: <2011-03-01 18:21:42 Jake Biesinger>
 
 """Description:
 
-Copyright (c) 2008,2009,2010 Yong Zhang, Tao Liu <taoliu@jimmy.harvard.edu>
+Copyright (c) 2008,2009,2010,2011 Hyunjin Shin, Tao Liu <taoliu@jimmy.harvard.edu>
 
 This code is free software; you can redistribute it and/or modify it
 under the terms of the Artistic License (see the file COPYING included

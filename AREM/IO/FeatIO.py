@@ -1,8 +1,8 @@
-# Time-stamp: <2011-01-20 18:21:42 Jake Biesinger>
+# Time-stamp: <2011-03-01 18:21:42 Jake Biesinger>
 
 """Description:
 
-Copyright (c) 2008,2009,2010 Yong Zhang, Tao Liu <taoliu@jimmy.harvard.edu>
+Copyright (c) 2010,2011 Tao Liu <taoliu@jimmy.harvard.edu>
 
 This code is free software; you can redistribute it and/or modify it
 under the terms of the Artistic License (see the file COPYING included
@@ -541,7 +541,7 @@ class FWTrackI:
         """Add a location to the list according to the sequence name.
         
         chromosome -- mostly the chromosome name
-        fiveendpos -- 5' end pos, left for plus strand, neg for neg strand
+        fiveendpos -- 5' end pos, left for plus strand, right for neg strand
         strand     -- 0: plus, 1: minus
         """
         if not self._locations.has_key(chromosome):

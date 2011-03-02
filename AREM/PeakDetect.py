@@ -1,14 +1,15 @@
-# Time-stamp: <2011-01-20 18:21:42 Jake Biesinger>
+# Time-stamp: <2011-03-01 18:21:42 Jake Biesinger>
 
-"""Description:
+"""Module Description
 
-Copyright (c) 2008,2009,2010 Yong Zhang, Tao Liu <taoliu@jimmy.harvard.edu>
+Copyright (c) 2008,2009 Yong Zhang, Tao Liu <taoliu@jimmy.harvard.edu>
+Copyright (c) 2010,2011 Tao Liu <taoliu@jimmy.harvard.edu>
 
 This code is free software; you can redistribute it and/or modify it
 under the terms of the Artistic License (see the file COPYING included
 with the distribution).
 
-@status: beta
+@status:  experimental
 @version: $Revision$
 @originalauthor:  Yong Zhang, Tao Liu
 @originalcontact: taoliu@jimmy.harvard.edu
@@ -34,7 +35,7 @@ from math import log10 as math_log10
 from array import array
 from itertools import count as itertools_count, izip as itertools_izip
 
-from AREM.OutputWriter import zwig_write
+from AREM.OutputWriter import zwig_write,zbdg_write
 from AREM.IO.FeatIO import PeakIO,WigTrackI,BinKeeperI
 from AREM.Prob import poisson_cdf,poisson_cdf_inv
 from AREM.Constants import *
@@ -240,10 +241,10 @@ class PeakDetect:
         height, number of tags in peak region, peak pvalue, peak
         fold_enrichment) <-- tuple type
         """
-        self.lambda_bg = float(self.scan_window)*self.treat.total/self.gsize
-        self.debug("#3 background lambda: %.2f " % (self.lambda_bg))
-        self.min_tags = poisson_cdf_inv(1-pow(10,self.pvalue/-10),self.lambda_bg)+1
-        self.debug("#3 min tags: %d" % (self.min_tags))
+        #self.lambda_bg = float(self.scan_window)*self.treat.total/self.gsize
+        #self.debug("#3 background lambda: %.2f " % (self.lambda_bg))
+        #self.min_tags = poisson_cdf_inv(1-pow(10,self.pvalue/-10),self.lambda_bg)+1
+        #self.debug("#3 min tags: %d" % (self.min_tags))
 
         self.ratio_treat2control = float(self.treat.total)/self.control.total
         if self.ratio_treat2control > 2 or self.ratio_treat2control < 0.5:
@@ -255,15 +256,15 @@ class PeakDetect:
         self.treat.merge_plus_minus_locations_naive ()
 
         self.debug("#3 after shift and merging, tags: %d" % (self.treat.total))
-        if self.save_wig:
+        if self.opt.store_bdg:
+            self.info("#3 save the shifted and merged tag counts into bedGraph file...")
+            zbdg_write(self.treat,self.opt.wig_dir_tr,self.zwig_tr,self.d,log=self.info,single=self.opt.single_profile)
+        elif self.opt.store_wig:
             self.info("#3 save the shifted and merged tag counts into wiggle file...")
-            #build wigtrack
-            #if self.save_wig:
-            #    treatwig = self._build_wigtrackI(self.treat,space=self.opt.space)
-            if self.opt.wigextend:
-                zwig_write(self.treat,self.opt.wig_dir_tr,self.zwig_tr,self.opt.wigextend,log=self.info,space=self.opt.space,single=self.opt.singlewig)
-            else:
-                zwig_write(self.treat,self.opt.wig_dir_tr,self.zwig_tr,self.d,log=self.info,space=self.opt.space,single=self.opt.singlewig)
+            #if self.opt.wigextend:
+            #    zwig_write(self.treat,self.opt.wig_dir_tr,self.zwig_tr,self.opt.wigextend,log=self.info,space=self.opt.space,single=self.opt.single_profile)
+            #else:
+            zwig_write(self.treat,self.opt.wig_dir_tr,self.zwig_tr,self.d,log=self.info,space=self.opt.space,single=self.opt.single_profile)
         self.info("#3 call treatment peak candidates")
         peak_candidates = self._call_peaks_from_trackI (self.treat)
         
@@ -273,16 +274,15 @@ class PeakDetect:
         self.control.merge_plus_minus_locations_naive ()
 
         self.debug("#3 after shift and merging, tags: %d" % (self.control.total))
-        if self.save_wig:
+        if self.opt.store_bdg:
+            self.info("#3 save the shifted and merged tag counts into bedGraph file...")
+            zbdg_write(self.control,self.opt.wig_dir_ctl,self.zwig_ctl,self.d,log=self.info,single=self.opt.single_profile)
+        if self.opt.store_wig:
             self.info("#3 save the shifted and merged tag counts into wiggle file...")
-            #build wigtrack
-            #if self.save_score:
-            #    controlbkI = self._build_binKeeperI(self.control,space=self.opt.space)
-            if self.opt.wigextend:
-                zwig_write(self.control,self.opt.wig_dir_ctl,self.zwig_ctl,self.opt.wigextend,log=self.info,space=self.opt.space,single=self.opt.singlewig)
-            else:
-                zwig_write(self.control,self.opt.wig_dir_ctl,self.zwig_ctl,self.d,log=self.info,space=self.opt.space,single=self.opt.singlewig)
-
+            #if self.opt.wigextend:
+            #    zwig_write(self.control,self.opt.wig_dir_ctl,self.zwig_ctl,self.opt.wigextend,log=self.info,space=self.opt.space,single=self.opt.single_profile)
+            #else:
+            zwig_write(self.control,self.opt.wig_dir_ctl,self.zwig_ctl,self.d,log=self.info,space=self.opt.space,single=self.opt.single_profile)
         self.info("#3 call negative peak candidates")
         negative_peak_candidates = self._call_peaks_from_trackI (self.control)
         
@@ -291,7 +291,7 @@ class PeakDetect:
             self._align_by_EM(self.treat, self.control, peak_candidates, self.ratio_treat2control,expName='treatment')
         
         self.info("#3 use control data to filter peak candidates...")
-        self.final_peaks = self._filter_w_control(peak_candidates,self.treat,self.control, self.ratio_treat2control,fake_when_missing=True)
+        self.final_peaks = self._filter_w_control(peak_candidates,self.treat,self.control, self.ratio_treat2control,fake_when_missing=True, to_small_sample=self.opt.tosmall)
         
         self.info("#3 find negative peaks by swapping treat and control")
         if self.treat.total_multi > 0 and self.control.total_multi > 0 \
@@ -305,7 +305,7 @@ class PeakDetect:
                                float(self.control.total) / self.treat.total,
                                expName='control')
         self.info("#3 use treat data to filter negative peak candidates...")
-        self.final_negative_peaks = self._filter_w_control(negative_peak_candidates,self.control,self.treat, 1.0/self.ratio_treat2control,fake_when_missing=True)
+        self.final_negative_peaks = self._filter_w_control(negative_peak_candidates,self.control,self.treat, 1.0/self.ratio_treat2control,fake_when_missing=True, to_small_sample=self.opt.tosmall)
         
         if self.treat.total_multi > 0 and self.control.total_multi > 0 \
                 and not self.opt.no_EM:
@@ -318,10 +318,10 @@ class PeakDetect:
         """To call peaks w/o control data.
 
         """
-        self.lambda_bg = float(self.scan_window)*self.treat.total/self.gsize
-        self.debug("#3 background lambda: %.2f " % (self.lambda_bg))
-        self.min_tags = poisson_cdf_inv(1-pow(10,self.pvalue/-10),self.lambda_bg)+1
-        self.debug("#3 min tags: %d" % (self.min_tags))
+        #self.lambda_bg = float(self.scan_window)*self.treat.total/self.gsize
+        #self.debug("#3 background lambda: %.2f " % (self.lambda_bg))
+        #self.min_tags = poisson_cdf_inv(1-pow(10,self.pvalue/-10),self.lambda_bg)+1
+        #self.debug("#3 min tags: %d" % (self.min_tags))
 
         self.info("#3 shift treatment data")
         self._shift_trackI(self.treat)
@@ -329,12 +329,15 @@ class PeakDetect:
         self.treat.merge_plus_minus_locations_naive ()
 
         self.debug("#3 after shift and merging, tags: %d" % (self.treat.total))
-        if self.save_wig:
+        if self.opt.store_bdg:
+            self.info("#3 save the shifted and merged tag counts into bedGraph file...")
+            zbdg_write(self.treat,self.opt.wig_dir_tr,self.zwig_tr,self.d,log=self.info,single=self.opt.single_profile)
+        elif self.opt.store_wig:
             self.info("#3 save the shifted and merged tag counts into wiggle file...")
-            if self.opt.wigextend:
-                zwig_write(self.treat,self.opt.wig_dir_tr,self.zwig_tr,self.opt.wigextend,log=self.info,space=self.opt.space,single=self.opt.singlewig)
-            else:
-                zwig_write(self.treat,self.opt.wig_dir_tr,self.zwig_tr,self.d,log=self.info,space=self.opt.space,single=self.opt.singlewig)
+            #if self.opt.wigextend:
+            #    zwig_write(self.treat,self.opt.wig_dir_tr,self.zwig_tr,self.opt.wigextend,log=self.info,space=self.opt.space,single=self.opt.single_profile)
+            #else:
+            zwig_write(self.treat,self.opt.wig_dir_tr,self.zwig_tr,self.d,log=self.info,space=self.opt.space,single=self.opt.single_profile)
         self.info("#3 call peak candidates")
         peak_candidates = self._call_peaks_from_trackI (self.treat)
         self.info("#3 use self to calculate local lambda and  filter peak candidates...")
@@ -359,20 +362,49 @@ class PeakDetect:
             for peak in peak_list:
                 print ( chrom+"\t"+"\t".join(map(str,peak)) )
 
-    def _filter_w_control (self, peak_info, treatment, control, treat2control_ratio, pass_sregion=False, write2wig= False, fake_when_missing=False ):
+    def _filter_w_control (self, peak_info, treatment, control, pass_sregion=False, write2wig= False, fake_when_missing=False, to_small_sample=False ):
         """Use control data to calculate several lambda values around
         1k, 5k and 10k region around peak summit. Choose the highest
         one as local lambda, then calculate p-value in poisson
         distribution.
+
+        Parameters:
+
+        1. pass_sregion: If set True, the slocal lambda will be
+        ignored. Use this when the control is not available.
         
+        2. write2wig: obselete
+        
+        3. fake_when_missing: when a chromosome is missing in control
+        but existing in IP or vice versa, MACS will fake a tag to pass
+        the process.
+        
+        4. to_small_sample: when set as True, balance the number of
+        tags by linearly scaling larger sample to smaller sample. The
+        default behaviour is to linearly scale smaller to larger one.        
+
         New: Try to refine peaks by looking for enriched subpeaks
 
         Return value type in this format:
         a dictionary
         key value : chromosome
         items : array of (peak_start,peak_end,peak_length,peak_summit,peak_height,peak_num_tags,peak_pvalue,peak_fold_enrichment)
-        
         """
+        lambda_bg0 = float(self.scan_window)*treatment.total/self.gsize # bug fixed...
+        
+        if treatment.total>control.total:
+            t_ratio = 1.00
+            c_ratio = float(treatment.total)/control.total
+        else:
+            t_ratio = float(control.total)/treatment.total
+            c_ratio = 1.00
+
+        if to_small_sample:
+            tmp = t_ratio
+            t_ratio = 1/c_ratio
+            c_ratio = 1/tmp
+        
+        
         final_peak_info = {}
         chrs = peak_info.keys()
         chrs.sort()
@@ -428,7 +460,7 @@ class PeakDetect:
 
                 #window_size_4_lambda = min(self.first_lambda_region,lmax(peak_length,scan_window))
                 window_size_4_lambda = lmax(peak_length,scan_window)
-                lambda_bg = self.lambda_bg/scan_window*window_size_4_lambda                
+                lambda_bg = lambda_bg0/self.scan_window*window_size_4_lambda
                 if self.nolambda:
                     # skip local lambda
                     print 'skipping local lambda'
@@ -455,6 +487,7 @@ class PeakDetect:
                             index_ctag+=1
                         elif right_lregion < ctags[index_ctag] \
                             or index_ctag + 1 >= len_ctags:
+                            # If move outof the lregion or reach the chromosome end
                             # finalize and go to next peak region
                             flag_find_ctag_locally = False
                             index_ctag = prev_index_ctag 
@@ -484,6 +517,7 @@ class PeakDetect:
                             index_ttag+=1
                         elif right_lregion < ttags[index_ttag] \
                             or index_ttag + 1 >= len_ttags:
+                            # If move out of the lregion or reach the chromosome end
                             # finalize and go to next peak region
                             flag_find_ttag_locally = False
                             index_ttag = prev_index_ttag
@@ -505,15 +539,13 @@ class PeakDetect:
                             else:
                                 tnum_lregion += prob
                             index_ttag += 1 # go to next tag
-                    clambda_peak = float(cnum_peak)/peak_length*treat2control_ratio*window_size_4_lambda
-                    #clambda_10k = float(cnum_10k)/self.third_lambda_region*treat2control_ratio*window_size_4_lambda
-                    clambda_lregion = float(cnum_lregion)/self.lregion*treat2control_ratio*window_size_4_lambda
-                    clambda_sregion = float(cnum_sregion)/self.sregion*treat2control_ratio*window_size_4_lambda
-                    tlambda_peak = float(tnum_peak)/peak_length*window_size_4_lambda
-                    #tlambda_10k = float(tnum_10k)/self.third_lambda_region*window_size_4_lambda
-                    tlambda_lregion = float(tnum_lregion)/self.lregion*window_size_4_lambda
-                    tlambda_sregion = float(tnum_sregion)/self.sregion*window_size_4_lambda
-                    #print clambda_peak, clambda_lregion, clambda_sregion, tlambda_peak, tlambda_sregion, tlambda_lregion
+                    clambda_peak = float(cnum_peak)/peak_length*c_ratio*window_size_4_lambda
+                    clambda_lregion = float(cnum_lregion)/self.lregion*c_ratio*window_size_4_lambda
+                    clambda_sregion = float(cnum_sregion)/self.sregion*c_ratio*window_size_4_lambda
+
+                    tlambda_peak = float(tnum_peak)/peak_length*t_ratio*window_size_4_lambda
+                    tlambda_lregion = float(tnum_lregion)/self.lregion*t_ratio*window_size_4_lambda
+                    tlambda_sregion = float(tnum_sregion)/self.sregion*t_ratio*window_size_4_lambda
 
                     if pass_sregion:
                         # for experiment w/o control, peak region lambda and sregion region lambda are ignored!
@@ -669,12 +701,13 @@ class PeakDetect:
 
         Return: data in this format. (peak_start,peak_end,peak_length,peak_summit,peak_height,peak_num_tags)
         """
+        lambda_bg0 = float(self.scan_window)*trackI.total/self.gsize # bug fixed...        
+        min_tags = poisson_cdf_inv(1-pow(10,self.pvalue/-10),lambda_bg0)+1
         prob_aligns = trackI.prob_aligns
         peak_candidates = {}
         self.debug("#3 search peak condidates...")
         chrs = trackI.get_chr_names()
         total = 0
-        min_tags = self.min_tags
         scan_window = self.scan_window
         for chrom in chrs:
             self.debug("#3 Chromosome %s" % (chrom))
@@ -848,8 +881,8 @@ class PeakDetect:
         self.control.sample(percent)
         ratio_treat2control = float(self.treat.total)/self.control.total
 
-        self.lambda_bg = float(self.scan_window)*self.treat.total/self.gsize # bug fixed...
-        self.min_tags = poisson_cdf_inv(1-pow(10,self.pvalue/-10),self.lambda_bg)+1
+        #self.lambda_bg = float(self.scan_window)*self.treat.total/self.gsize # bug fixed...
+        #self.min_tags = poisson_cdf_inv(1-pow(10,self.pvalue/-10),self.lambda_bg)+1
 
         self.debug("#3 diag: after shift and merging, treat: %d, control: %d" % (self.treat.total,self.control.total))
         self.info("#3 diag: call peak candidates")
@@ -872,8 +905,8 @@ class PeakDetect:
 
     def _diag_peakfinding_wo_control_sample (self, percent):
 
-        self.lambda_bg = float(self.scan_window)*self.treat.total/self.gsize # bug fixed...
-        self.min_tags = poisson_cdf_inv(1-pow(10,self.pvalue/-10),self.lambda_bg)+1
+        #self.lambda_bg = float(self.scan_window)*self.treat.total/self.gsize # bug fixed...
+        #self.min_tags = poisson_cdf_inv(1-pow(10,self.pvalue/-10),self.lambda_bg)+1
 
         self.treat.sample(percent)
         self.debug("#3 diag: after shift and merging, tags: %d" % (self.treat.total))
@@ -1235,6 +1268,20 @@ class PeakDetect:
         t_prob_aligns = treatment.prob_aligns
         c_prob_aligns = control.prob_aligns
 
+        lambda_bg0 = float(self.scan_window)*treatment.total/self.gsize # bug fixed...
+        
+        if treatment.total>control.total:
+            t_ratio = 1.00
+            c_ratio = float(treatment.total)/control.total
+        else:
+            t_ratio = float(control.total)/treatment.total
+            c_ratio = 1.00
+
+        if to_small_sample:
+            tmp = t_ratio
+            t_ratio = 1/c_ratio
+            c_ratio = 1/tmp
+
         for chrom in chroms:
             peak_list = peak_info[chrom]
             try:
@@ -1272,11 +1319,10 @@ class PeakDetect:
                 #window_size_4_lambda = min(self.first_lambda_region,max(peak_length,self.scan_window))
                 window_size_4_lambda = max(peak_length,self.scan_window)
                 #window_size_4_lambda = peak_length
-                lambda_bg = self.lambda_bg/self.scan_window*window_size_4_lambda                
                 if self.nolambda:
                     # skip local lambda
-                    local_lambda = lambda_bg
-                    tlambda_peak = float(peak_num_tags)/peak_length*window_size_4_lambda
+                    local_lambda = lambda_bg0
+                    tlambda_peak = float(peak_num_tags)/peak_length*t_ratio*window_size_4_lambda
                 else:
                     left_peak = peak_start+self.shift_size # go to middle point of the first fragment
                     right_peak = peak_end-self.shift_size  # go to middle point of the last fragment
@@ -1347,14 +1393,13 @@ class PeakDetect:
                         all_peak_inds[chrom] = []
                     all_peak_inds[chrom].append(inds_in_peak)
         
-                    clambda_peak = float(cnum_peak)/peak_length*treat2control_ratio*window_size_4_lambda
-                    #clambda_10k = float(cnum_10k)/self.third_lambda_region*treat2control_ratio*window_size_4_lambda
-                    clambda_lregion = float(cnum_lregion)/self.lregion*treat2control_ratio*window_size_4_lambda
-                    clambda_sregion = float(cnum_sregion)/self.sregion*treat2control_ratio*window_size_4_lambda
-                    tlambda_peak = float(tnum_peak)/peak_length*window_size_4_lambda
-                    #tlambda_10k = float(tnum_10k)/self.third_lambda_region*window_size_4_lambda
-                    tlambda_lregion = float(tnum_lregion)/self.lregion*window_size_4_lambda
-                    tlambda_sregion = float(tnum_sregion)/self.sregion*window_size_4_lambda
+                    clambda_peak = float(cnum_peak)/peak_length*c_ratio*window_size_4_lambda
+                    clambda_lregion = float(cnum_lregion)/self.lregion*c_ratio*window_size_4_lambda
+                    clambda_sregion = float(cnum_sregion)/self.sregion*c_ratio*window_size_4_lambda
+                    
+                    tlambda_peak = float(tnum_peak)/peak_length*t_ratio*window_size_4_lambda
+                    tlambda_lregion = float(tnum_lregion)/self.lregion*t_ratio*window_size_4_lambda
+                    tlambda_sregion = float(tnum_sregion)/self.sregion*t_ratio*window_size_4_lambda
         
                     if pass_sregion:
                         # for experiment w/o control, peak region lambda and sregion region lambda are ignored!

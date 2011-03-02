@@ -1,8 +1,8 @@
-# Time-stamp: <2011-01-20 18:21:42 Jake Biesinger>
+# Time-stamp: <2011-03-01 18:21:42 Jake Biesinger>
 
 """Description:
 
-Copyright (c) 2008,2009,2010 Yong Zhang, Tao Liu <taoliu@jimmy.harvard.edu>
+Copyright (c) 2010,2011 Tao Liu <taoliu@jimmy.harvard.edu>
 
 This code is free software; you can redistribute it and/or modify it
 under the terms of the Artistic License (see the file COPYING included
@@ -152,6 +152,13 @@ def opt_validate ( parser ):
     #    sys.exit(1)
     #options.lambdaset = lambdaset # overwrite it
 
+    # duplicate reads
+    if options.keepduplicates != "auto" and options.keepduplicates != "all":
+        if not options.keepduplicates.isdigit():
+            logging.error("--keep-dup should be 'auto', 'all' or an integer!")
+            sys.exit(1)
+
+    # small sample?
 
     # shiftsize>0
     if options.shiftsize <=0 :
@@ -230,17 +237,27 @@ def opt_validate ( parser ):
         #"# unique tag filter is %s" % (tmptxt),\
         ))
 
+    if options.tosmall:
+        options.argtxt += "# Large dataset will be scaled towards smaller dataset.\n"
+    else:
+        options.argtxt += "# Small dataset will be scaled towards larger dataset.\n"
+
+
     if options.cfile:
         options.argtxt += "# Range for calculating regional lambda is: %d bps and %d bps\n" % (options.smalllocal,options.largelocal)
     else:
         options.argtxt += "# Range for calculating regional lambda is: %d bps\n" % (options.largelocal)
 
-    # wig file?
-    subdir = options.name+"_AREM_wiggle"
-    if options.store_wig:
+    # wig or bdg subdir
+    if options.store_wig or options.store_bdg:
+        if options.store_bdg:
+            # bdg has higher priority
+            subdir = options.name+"_AREM_bedGraph"
+        elif options.store_wig:
+            subdir = options.name+"_AREM_wiggle"
         # check subdir
         if os.path.exists(subdir):
-            options.error("./%s exists! Unable to create directory to store wiggle file!!" % (subdir))
+            options.error("./%s exists! Unable to create directory to store profiles!!" % (subdir))
             sys.exit(1)
         else:
             options.wig_dir_tr = subdir+"/treat/"

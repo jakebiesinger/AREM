@@ -1,0 +1,24 @@
+
+import sys
+import argparse
+import subprocess
+import AREM.IO.Parser as AREM_Parser
+
+
+def main(argv=None):
+    """Filter the multireads from a given dataset such that only N multireads
+    align to each (start, strand).
+    """
+    if argv is None:
+        argv = sys.argv[1:]
+    parser = argparse.ArgumentParser(description=main.__doc__)
+    parser.add_argument('--max_multi_reads', default=1, help='The maximum number'
+                        ' of multireads allowed at the same start and strand')
+    parser.add_argument('--format', default='bowtie', choices=['bowtie'])
+    parser.add_argument('filein')
+    args = parser.parse_args(argv)
+    
+    if args.format == 'bowtie':
+        # sort the input by chrom position
+        subprocess.check_call('sort -k 2,3,')
+    

@@ -1,4 +1,4 @@
-include README COPYING ChangeLog INSTALL MANIFEST setup.py bin/arem
+include README COPYING ChangeLog INSTALL MANIFEST setup.py bin/arem bin/wignorm bin/elandmulti2bed bin/elandresult2bed bin/elandexport2bed bin/sam2bed
 recursive-include lib *.py
 prune test
 prune web

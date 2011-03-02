@@ -1,6 +1,6 @@
-# Time-stamp: <2011-01-20 18:21:42 Jake Biesinger>
+# Time-stamp: <2011-03-01 18:21:42 Jake Biesinger>
 
-AREM_VERSION = "AREM 1.0.0"
+AREM_VERSION = "AREM 1.0.1"
 MAX_PAIRNUM = 1000
 MAX_LAMBDA  = 100000
 FESTEP      = 20

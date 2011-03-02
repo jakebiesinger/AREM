@@ -1,8 +1,8 @@
-# Time-stamp: <2011-01-20 18:21:42 Jake Biesinger>
+# Time-stamp: <2011-03-01 18:21:42 Jake Biesinger>
 
 """Module for all AREM Parser classes for input.
 
-Copyright (c) 2008,2009,2010 Yong Zhang, Tao Liu <taoliu@jimmy.harvard.edu>
+Copyright (c) 2010,2011 Tao Liu <taoliu@jimmy.harvard.edu>
 
 This code is free software; you can redistribute it and/or modify it
 under the terms of the Artistic License (see the file COPYING included
@@ -17,9 +17,8 @@ Modifications to probabilistically align reads to regions with highest
 enrichment performed by Jacob Biesinger. Repackaged as "AREM" in accordance
 with copyright restrictions.
 
-@author: Biesinger, W Jacob B
-@contact: jake.biesinger@gmail.com
-
+@author: Jacob Biesinger, Daniel Newkirk, Alvin Chon 
+@contact: jake.biesinger@gmail.com, dnewkirk@uci.edu, achon@uci.edu
 
 Changes to this file since original release of MACS 1.4 (summer wishes):
   December/January 2011
