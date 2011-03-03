@@ -88,7 +88,7 @@ def main():
     t0 = treat.total
     tagsinfo += "# total tags in treatment: %d\n" % (t0)
     info("#1  total tags in treatment: %d" % (t0))
-    if treat.total_multi > 0:
+    if treat.total_multi == 0:
         if options.keepduplicates != "all":
             if options.keepduplicates == "auto":
                 info("#1 calculate max duplicate tags in single position based on binomal distribution...")
@@ -111,7 +111,7 @@ def main():
         c0 = control.total
         tagsinfo += "# total tags in control: %d\n" % (c0)
         info("#1  total tags in control: %d" % (c0))
-        if treat.total_multi > 0:
+        if treat.total_multi == 0:
             if options.keepduplicates != "all":
                 if options.keepduplicates == "auto":
                     info("#1  for control, calculate max duplicate tags in single position based on binomal distribution...")

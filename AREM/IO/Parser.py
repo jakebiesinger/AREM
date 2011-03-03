@@ -280,6 +280,8 @@ class MultiReadParser(object):
                 (chromosome,fpos,strand, tagname, qualstr, mismatches) = self._fw_parse_line(thisline)
             except:
                 continue
+            if qualstr is None:
+                continue
             if qual_min is None or qual_max is None:
                 qual_min = min(qualstr)
                 qual_max = max(qualstr)
@@ -288,7 +290,7 @@ class MultiReadParser(object):
                 qual_max = max(qual_max, max(qualstr))
             n += 1
         self.fhd.seek(0)
-        if qual_min < 33:
+        if qual_min is None or qual_min < 33:
             raise BaseQualityError("Unrecognized scale for read quality: min %s, max %s" % (qual_min, qual_max))
         elif qual_min <= qual_max <= 73:
             # likely Sanger quals (ascii 33 to 73) since illumina quals would

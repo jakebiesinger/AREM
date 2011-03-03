@@ -291,7 +291,7 @@ class PeakDetect:
             self._align_by_EM(self.treat, self.control, peak_candidates, self.ratio_treat2control,expName='treatment')
         
         self.info("#3 use control data to filter peak candidates...")
-        self.final_peaks = self._filter_w_control(peak_candidates,self.treat,self.control, self.ratio_treat2control,fake_when_missing=True, to_small_sample=self.opt.tosmall)
+        self.final_peaks = self._filter_w_control(peak_candidates,self.treat,self.control, fake_when_missing=True, to_small_sample=self.opt.tosmall)
         
         self.info("#3 find negative peaks by swapping treat and control")
         if self.treat.total_multi > 0 and self.control.total_multi > 0 \
@@ -302,10 +302,10 @@ class PeakDetect:
             self.info("#3. Perform EM on control multi reads")
             self._align_by_EM(self.control, self.treat,
                                negative_peak_candidates,
-                               float(self.control.total) / self.treat.total,
+                               to_small_sample=self.opt.tosmall,
                                expName='control')
         self.info("#3 use treat data to filter negative peak candidates...")
-        self.final_negative_peaks = self._filter_w_control(negative_peak_candidates,self.control,self.treat, 1.0/self.ratio_treat2control,fake_when_missing=True, to_small_sample=self.opt.tosmall)
+        self.final_negative_peaks = self._filter_w_control(negative_peak_candidates,self.control,self.treat, fake_when_missing=True, to_small_sample=self.opt.tosmall)
         
         if self.treat.total_multi > 0 and self.control.total_multi > 0 \
                 and not self.opt.no_EM:
@@ -341,7 +341,7 @@ class PeakDetect:
         self.info("#3 call peak candidates")
         peak_candidates = self._call_peaks_from_trackI (self.treat)
         self.info("#3 use self to calculate local lambda and  filter peak candidates...")
-        self.final_peaks = self._filter_w_control(peak_candidates,self.treat,self.treat,1,pass_sregion=True)
+        self.final_peaks = self._filter_w_control(peak_candidates,self.treat,self.treat,pass_sregion=True)
         return self.final_peaks
 
     def _print_peak_info (self, peak_info):
@@ -892,7 +892,7 @@ class PeakDetect:
         negative_peak_candidates = self._call_peaks_from_trackI (self.control)
         
         self.info("#3 diag: use control data to filter peak candidates...")
-        final_peaks_percent = self._filter_w_control(peak_candidates,self.treat,self.control, ratio_treat2control)
+        final_peaks_percent = self._filter_w_control(peak_candidates,self.treat,self.control, to_small_sample=self.opt.tosmall)
         return final_peaks_percent
         
     def _diag_wo_control (self):
@@ -913,7 +913,7 @@ class PeakDetect:
         self.info("#3 diag: call peak candidates")
         peak_candidates = self._call_peaks_from_trackI (self.treat)
         self.info("#3 diag: use self to calculate local lambda and  filter peak candidates...")
-        final_peaks_percent = self._filter_w_control(peak_candidates,self.treat,self.treat,1,pass_sregion=True) # bug fixed...
+        final_peaks_percent = self._filter_w_control(peak_candidates,self.treat,self.treat,pass_sregion=True) # bug fixed...
         return final_peaks_percent
 
     def _overlap (self, gold_peaks, sample_peaks, top=90,bottom=10,step=-10):
@@ -996,7 +996,7 @@ class PeakDetect:
 
 
     def _align_by_EM(self, treatment, control, init_regions,
-                      treat2control_ratio, show_graphs=None, expName='treatment'):
+                      to_small_sample, show_graphs=None, expName='treatment'):
         """
         Align the multi reads in treatment using expectation-maximization.
         
@@ -1012,7 +1012,7 @@ class PeakDetect:
         # get indices and lambdas for candidate regions
         self.info('#3.5 Gathering background lambdas')
         all_peak_inds, all_peak_lambdas = self._get_all_peak_lambdas(init_regions,
-            treatment, control, treat2control_ratio)
+            treatment, control, to_small_sample)
         # filter out non-multiread peaks and save only counts of unique reads + multi indices
         min_score = self.opt.min_score if self.opt.min_score is not None else 1e-3
         max_score = self.opt.max_score if self.opt.max_score is not None else 2e3
@@ -1056,7 +1056,7 @@ class PeakDetect:
                     if chrom not in final_regions:
                         final_regions[chrom] = []
                     final_regions[chrom].append((local_lambda, unique_count, multi_inds))
-        print 'total_multi: ', treatment.total_multi
+        #print 'total_multi: ', treatment.total_multi
         #print 'total number of peaks in candidate regions:', sum(1 for inc in in_candidate if inc)
         
         # for each iteration
@@ -1255,7 +1255,7 @@ class PeakDetect:
         pyplot.close()
 
 
-    def _get_all_peak_lambdas(self, peak_info, treatment, control, treat2control_ratio):
+    def _get_all_peak_lambdas(self, peak_info, treatment, control, to_small_sample):
         """
         from MACS: calculate the local (max) lambda for each peak.
         Also returns all tag indices within each peak
@@ -1403,12 +1403,12 @@ class PeakDetect:
         
                     if pass_sregion:
                         # for experiment w/o control, peak region lambda and sregion region lambda are ignored!
-                        local_lambda = max(lambda_bg,tlambda_lregion)
+                        local_lambda = max(lambda_bg0,tlambda_lregion)
                     else:
                         # for experiment w/ control
                         #outfile = open('lambdas.txt', 'a')
                         #outfile.write('\t'.join(map(str, [lambda_bg,clambda_peak,clambda_lregion,clambda_sregion])) + '\n')
-                        local_lambda = max(lambda_bg,clambda_peak,clambda_lregion,clambda_sregion)
+                        local_lambda = max(lambda_bg0,clambda_peak,clambda_lregion,clambda_sregion)
                     if chrom not in all_local_lambdas:
                         all_local_lambdas[chrom] = []
                     all_local_lambdas[chrom].append(local_lambda)
