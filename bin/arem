@@ -99,13 +99,13 @@ def main():
                 info("#1 user defined the maximum tags...")
                 treatment_max_dup_tags = int(options.keepduplicates)
                 info("#1 filter out redundant tags at the same location and the same strand by allowing at most %d tag(s)" % (treatment_max_dup_tags))
-        treat.filter_dup(treatment_max_dup_tags)
-        t1 = treat.total
-        info("#1  tags after filtering in treatment: %d" % (t1))
-        tagsinfo += "# tags after filtering in treatment: %d\n" % (t1)
-        tagsinfo += "# maximum duplicate tags at the same position in treatment = %d\n" % (treatment_max_dup_tags)
-        info("#1  Redundant rate of treatment: %.2f" % (float(t0-t1)/t0))
-        tagsinfo += "# Redundant rate in treatment: %.2f\n" % (float(t0-t1)/t0)
+            treat.filter_dup(treatment_max_dup_tags)
+            t1 = treat.total
+            info("#1  tags after filtering in treatment: %d" % (t1))
+            tagsinfo += "# tags after filtering in treatment: %d\n" % (t1)
+            tagsinfo += "# maximum duplicate tags at the same position in treatment = %d\n" % (treatment_max_dup_tags)
+            info("#1  Redundant rate of treatment: %.2f" % (float(t0-t1)/t0))
+            tagsinfo += "# Redundant rate in treatment: %.2f\n" % (float(t0-t1)/t0)
 
     if control:
         c0 = control.total
@@ -122,14 +122,14 @@ def main():
                     info("#1 user defined the maximum tags...")
                     control_max_dup_tags = int(options.keepduplicates)
                     info("#1 filter out redundant tags at the same location and the same strand by allowing at most %d tag(s)" % (treatment_max_dup_tags))
-            control.filter_dup(control_max_dup_tags)
-            c1 = control.total
-            info("#1  tags after filtering in control: %d" % (c1))
-            tagsinfo += "# tags after filtering in control: %d\n" % (c1)
-            tagsinfo += "# maximum duplicate tags at the same position in control = %d\n" % (control_max_dup_tags)
-            
-            info("#1  Redundant rate of control: %.2f" % (float(c0-c1)/c0))
-            tagsinfo += "# Redundant rate in control: %.2f\n" % (float(c0-c1)/c0)    
+                control.filter_dup(control_max_dup_tags)
+                c1 = control.total
+                info("#1  tags after filtering in control: %d" % (c1))
+                tagsinfo += "# tags after filtering in control: %d\n" % (c1)
+                tagsinfo += "# maximum duplicate tags at the same position in control = %d\n" % (control_max_dup_tags)
+                
+                info("#1  Redundant rate of control: %.2f" % (float(c0-c1)/c0))
+                tagsinfo += "# Redundant rate in control: %.2f\n" % (float(c0-c1)/c0)    
 
     info("#1 finished!")
 
