@@ -292,7 +292,7 @@ class MultiReadParser(object):
         self.fhd.seek(0)
         if qual_min is None or qual_min < 33:
             raise BaseQualityError("Unrecognized scale for read quality: min %s, max %s" % (qual_min, qual_max))
-        elif qual_min <= qual_max <= 73:
+        elif qual_min <= qual_max <= 74:
             # likely Sanger quals (ascii 33 to 73) since illumina quals would
             # have to have terrible read qualities to fall in this category
             return 'sanger+33'
